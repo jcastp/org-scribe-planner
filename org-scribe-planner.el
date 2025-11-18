@@ -571,6 +571,23 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
               ;; Week header (starts on Monday)
               (when (or is-monday (null prev-week-start))
                 (insert (propertize (format "\nWeek %d:\n" week-num) 'face 'org-level-3))
+                ;; Add column headers
+                (insert (propertize
+                        (format "  %-23s  %-12s     %-12s  |  %-13s  |  %s\n"
+                               "Date (Day)"
+                               "Daily Target"
+                               "Expected Total"
+                               "Actual Total"
+                               "Daily Actual")
+                        'face 'bold))
+                (insert (propertize
+                        (format "  %s  %s     %s  |  %s  |  %s\n"
+                               (make-string 23 ?-)
+                               (make-string 12 ?-)
+                               (make-string 12 ?-)
+                               (make-string 13 ?-)
+                               (make-string 25 ?-))
+                        'face 'org-level-4))
                 (setq week-num (1+ week-num)
                       week-words 0
                       prev-week-start date))
