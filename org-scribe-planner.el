@@ -64,7 +64,8 @@
   (end-date nil :type string)
   (spare-days nil :type list)    ; List of dates in "YYYY-MM-DD" format
   (current-words 0 :type number)
-  (org-heading-marker nil))      ; Marker to org heading
+  (org-heading-marker nil)       ; Marker to org heading
+  (daily-word-counts nil :type list)) ; Alist of (date . word-count) pairs
 
 ;;; Core Calculation Functions
 
@@ -408,19 +409,35 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
       (when (org-scribe-plan-spare-days plan)
         (org-set-property "SPARE_DAYS" (mapconcat 'identity (org-scribe-plan-spare-days plan) ",")))
 
+      (when (org-scribe-plan-daily-word-counts plan)
+        (org-set-property "DAILY_WORD_COUNTS"
+                         (mapconcat (lambda (pair)
+                                     (format "%s:%d" (car pair) (cdr pair)))
+                                   (org-scribe-plan-daily-word-counts plan)
+                                   ",")))
+
       ;; Add schedule as content
       (goto-char (point-max))
       (insert "\n** Schedule\n\n")
-      (let ((schedule (org-scribe-planner--generate-day-schedule plan)))
-        (insert "| Date | Words | Cumulative | Notes |\n")
-        (insert "|------+-------+------------+-------|\n")
+      (let ((schedule (org-scribe-planner--generate-day-schedule plan))
+            (daily-counts (org-scribe-plan-daily-word-counts plan)))
+        (insert "| Date | Target | Cumulative | Actual | Progress % | Notes |\n")
+        (insert "|------+--------+------------+--------+------------+-------|\n")
         (dolist (day schedule)
-          (insert (format "| %s | %s | %d | %s |\n"
-                         (plist-get day :date)
-                         (if (plist-get day :is-spare-day) "REST"
-                           (number-to-string (plist-get day :words)))
-                         (plist-get day :cumulative)
-                         (if (plist-get day :is-spare-day) "Spare day" "")))))
+          (let* ((date (plist-get day :date))
+                 (target (plist-get day :words))
+                 (is-spare (plist-get day :is-spare-day))
+                 (actual (cdr (assoc date daily-counts)))
+                 (percentage (if (and actual (not is-spare) (> target 0))
+                                (format "%.1f%%" (* 100.0 (/ (float actual) target)))
+                              "")))
+            (insert (format "| %s | %s | %d | %s | %s | %s |\n"
+                           date
+                           (if is-spare "REST" (number-to-string target))
+                           (plist-get day :cumulative)
+                           (if actual (number-to-string actual) "")
+                           percentage
+                           (if is-spare "Spare day" ""))))))
 
       (org-table-align)
       (save-buffer)
@@ -451,6 +468,14 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
           (when spare-days-str
             (setf (org-scribe-plan-spare-days plan)
                   (split-string spare-days-str "," t " "))))
+
+        (let ((daily-counts-str (org-entry-get nil "DAILY_WORD_COUNTS")))
+          (when daily-counts-str
+            (setf (org-scribe-plan-daily-word-counts plan)
+                  (mapcar (lambda (pair-str)
+                           (let ((parts (split-string pair-str ":" t " ")))
+                             (cons (car parts) (string-to-number (cadr parts)))))
+                         (split-string daily-counts-str "," t " ")))))
 
         (setf (org-scribe-plan-org-heading-marker plan)
               (point-marker)))
@@ -500,42 +525,77 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
         (insert (make-string 80 ?-) "\n")
 
         (let ((schedule (org-scribe-planner--generate-day-schedule plan))
+              (daily-counts (org-scribe-plan-daily-word-counts plan))
               (week-num 1)
               (week-words 0)
-              (day-of-week 0))
+              (prev-week-start nil)
+              (cumulative-actual 0))
 
           (dolist (day schedule)
-            ;; Week header
-            (when (= day-of-week 0)
-              (insert (propertize (format "\nWeek %d:\n" week-num) 'face 'org-level-3))
-              (setq week-num (1+ week-num)
-                    week-words 0))
-
-            ;; Day entry
             (let* ((date (plist-get day :date))
                    (words (plist-get day :words))
                    (cumulative (plist-get day :cumulative))
                    (is-spare (plist-get day :is-spare-day))
+                   (actual (cdr (assoc date daily-counts)))
+                   ;; Parse date to get day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+                   (date-parts (mapcar 'string-to-number (split-string date "-")))
+                   (year (nth 0 date-parts))
+                   (month (nth 1 date-parts))
+                   (day-num (nth 2 date-parts))
+                   (day-of-week (calendar-day-of-week (list month day-num year)))
+                   (day-name (calendar-day-name (list month day-num year)))
+                   (is-monday (= day-of-week 1))
+                   (percentage (if (and actual (not is-spare) (> words 0))
+                                  (format "[%.1f%%]" (* 100.0 (/ (float actual) words)))
+                                ""))
                    (face (if is-spare 'org-agenda-dimmed-todo-face 'default)))
 
-              (insert (propertize
-                      (format "  %s: %s → %d total %s\n"
-                             date
-                             (if is-spare "REST    " (format "%4d words" words))
-                             cumulative
-                             (if is-spare "(spare day)" ""))
-                      'face face))
+              ;; Update cumulative actual word count
+              (when actual
+                (setq cumulative-actual (+ cumulative-actual actual)))
 
-              (setq week-words (+ week-words words)
-                    day-of-week (mod (1+ day-of-week) 7))
+              ;; Week header (starts on Monday)
+              (when (or is-monday (null prev-week-start))
+                (insert (propertize (format "\nWeek %d:\n" week-num) 'face 'org-level-3))
+                (setq week-num (1+ week-num)
+                      week-words 0
+                      prev-week-start date))
 
-              ;; Week summary
-              (when (or (= day-of-week 0) (equal day (car (last schedule))))
-                (insert (propertize (format "  Week total: %d words\n" week-words)
-                                   'face 'org-level-4))))))
+              ;; Day entry with columnar formatting
+              (let* ((date-col (format "%s (%-9s)" date day-name))
+                     (target-col (if is-spare "REST" (format "%5d words" words)))
+                     (cumulative-col (format "%6d total" cumulative))
+                     (cumulative-actual-col (if (> cumulative-actual 0)
+                                               (format "%6d actual" cumulative-actual)
+                                             ""))
+                     (daily-actual-col (if actual
+                                          (format "%5d words %s" actual percentage)
+                                        ""))
+                     (note-col (if is-spare "(spare day)" "")))
+                (insert (propertize
+                        (format "  %-23s  %12s  →  %12s  |  %-13s  |  %s%s\n"
+                               date-col
+                               target-col
+                               cumulative-col
+                               cumulative-actual-col
+                               (if actual "Daily: " "")
+                               (if actual daily-actual-col note-col))
+                        'face face)))
+
+              (setq week-words (+ week-words words))
+
+              ;; Week summary (show at end of week or end of schedule)
+              (let ((next-day (cadr (member day schedule))))
+                (when (or (null next-day)  ; last day
+                         (let* ((next-date (plist-get next-day :date))
+                                (next-parts (mapcar 'string-to-number (split-string next-date "-")))
+                                (next-dow (calendar-day-of-week (list (nth 1 next-parts) (nth 2 next-parts) (nth 0 next-parts)))))
+                           (= next-dow 1)))  ; next day is Monday
+                  (insert (propertize (format "  Week total: %d words\n" week-words)
+                                     'face 'org-level-4)))))))
 
         (insert "\n" (make-string 80 ?=) "\n")
-        (insert "\nCommands: [q] quit  [r] recalculate  [u] update progress\n"))
+        (insert "\nCommands: [q] quit  [r] recalculate  [u] update progress  [d] daily word count\n"))
 
       (goto-char (point-min))
       (display-buffer buffer))))
@@ -547,6 +607,7 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
 (define-key org-scribe-planner-calendar-mode-map (kbd "q") #'quit-window)
 (define-key org-scribe-planner-calendar-mode-map (kbd "r") #'org-scribe-planner-recalculate)
 (define-key org-scribe-planner-calendar-mode-map (kbd "u") #'org-scribe-planner-update-progress)
+(define-key org-scribe-planner-calendar-mode-map (kbd "d") #'org-scribe-planner-update-daily-word-count)
 
 ;;; Org-agenda Integration
 
@@ -629,6 +690,34 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
         ;; Show updated calendar
         (org-scribe-planner-show-calendar plan)
         (org-scribe-planner--show-progress-report plan)))))
+
+;;;###autoload
+(defun org-scribe-planner-update-daily-word-count ()
+  "Update the actual word count for a specific day."
+  (interactive)
+  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
+         (file (completing-read "Select plan: " files nil t)))
+    (when file
+      (let* ((plan (org-scribe-planner--load-plan file))
+             (schedule (org-scribe-planner--generate-day-schedule plan))
+             (dates (mapcar (lambda (day) (plist-get day :date)) schedule))
+             (date (completing-read "Select date: " dates nil t))
+             (word-count (read-number "Word count for this day: " 0)))
+
+        ;; Update or add the daily word count
+        (let ((existing (assoc date (org-scribe-plan-daily-word-counts plan))))
+          (if existing
+              (setcdr existing word-count)
+            (push (cons date word-count) (org-scribe-plan-daily-word-counts plan))))
+
+        ;; Save the updated plan
+        (org-scribe-planner--save-plan plan)
+
+        (message "Updated word count for %s to %d" date word-count)
+
+        ;; Ask if user wants to recalculate future targets
+        (when (y-or-n-p "Would you like to recalculate the plan based on remaining words? ")
+          (org-scribe-planner-recalculate))))))
 
 (defun org-scribe-planner--show-progress-report (plan)
   "Display a progress report for PLAN."
