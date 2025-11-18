@@ -158,6 +158,20 @@ If neither is set, uses today as start-date."
   "Convert Emacs TIME to YYYY-MM-DD string."
   (format-time-string "%Y-%m-%d" time))
 
+(defun org-scribe-planner--add-days (date-string days)
+  "Add DAYS to DATE-STRING and return new date string in YYYY-MM-DD format."
+  (let* ((date-time (org-scribe-planner--parse-date date-string))
+         (new-time (time-add date-time (days-to-time days))))
+    (format-time-string "%Y-%m-%d" new-time)))
+
+(defun org-scribe-planner--days-between (start-date-string end-date-string)
+  "Calculate the number of days between START-DATE-STRING and END-DATE-STRING."
+  (let* ((start-time (org-scribe-planner--parse-date start-date-string))
+         (end-time (org-scribe-planner--parse-date end-date-string))
+         (diff (time-subtract end-time start-time))
+         (days (/ (float-time diff) 86400)))
+    (round (1+ days))))  ; Add 1 to include both start and end dates
+
 (defun org-scribe-planner--is-spare-day (date spare-days)
   "Check if DATE is in the SPARE-DAYS list."
   (member date spare-days))
@@ -715,9 +729,9 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
 
         (message "Updated word count for %s to %d" date word-count)
 
-        ;; Ask if user wants to recalculate future targets
-        (when (y-or-n-p "Would you like to recalculate the plan based on remaining words? ")
-          (org-scribe-planner-recalculate))))))
+        ;; Ask if user wants to recalculate future targets based on cumulative progress
+        (when (y-or-n-p "Would you like to recalculate the plan based on your cumulative progress? ")
+          (org-scribe-planner-recalculate-from-progress plan file))))))
 
 (defun org-scribe-planner--show-progress-report (plan)
   "Display a progress report for PLAN."
@@ -744,6 +758,73 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
        (if (>= ahead-behind 0) "Ahead" "Behind")
        (if (>= ahead-behind 0) "+" "")
        ahead-behind))))
+
+(defun org-scribe-planner-recalculate-from-progress (plan _file)
+  "Recalculate PLAN based on cumulative actual progress."
+  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
+         (cumulative-actual (apply '+ (mapcar 'cdr daily-counts)))
+         (total-words (org-scribe-plan-total-words plan))
+         (remaining-words (- total-words cumulative-actual))
+         (today (format-time-string "%Y-%m-%d"))
+         (end-date (org-scribe-plan-end-date plan))
+         (schedule (org-scribe-planner--generate-day-schedule plan))
+         (remaining-days 0))
+
+    ;; Count remaining working days (from today until end, excluding spare days)
+    (dolist (day schedule)
+      (let ((date (plist-get day :date))
+            (is-spare (plist-get day :is-spare-day)))
+        (when (and (not (string< date today))
+                  (not is-spare))
+          (setq remaining-days (1+ remaining-days)))))
+
+    (message "Current progress: %d words written. Remaining: %d words (%d working days left)"
+             cumulative-actual remaining-words remaining-days)
+
+    ;; Ask user what they want to adjust
+    (let ((choice (completing-read
+                   "How would you like to recalculate? "
+                   '("Adjust end date (keep daily word count)"
+                     "Adjust daily word count (keep end date)")
+                   nil t)))
+
+      (cond
+       ((string-match "Adjust end date" choice)
+        ;; Keep daily words the same, recalculate end date
+        (let ((daily-words (org-scribe-plan-daily-words plan))
+              (start-date (org-scribe-plan-start-date plan)))
+          ;; Calculate new end date based on remaining words and current daily target
+          (let* ((days-needed (ceiling (/ (float remaining-words) daily-words)))
+                 (new-end-date (org-scribe-planner--add-days today days-needed)))
+            ;; Keep total-words unchanged (original objective)
+            ;; Keep daily-word-counts unchanged (user's history)
+            ;; Update current-words to reflect actual progress
+            (setf (org-scribe-plan-current-words plan) cumulative-actual)
+            (setf (org-scribe-plan-end-date plan) new-end-date)
+            ;; Recalculate days based on new end date
+            (setf (org-scribe-plan-days plan)
+                  (org-scribe-planner--days-between start-date new-end-date))
+            (message "Recalculated: %d words remaining, new end date is %s (keeping %d words/day)"
+                     remaining-words new-end-date daily-words))))
+
+       ((string-match "Adjust daily word count" choice)
+        ;; Keep end date, recalculate daily words to fit remaining work
+        ;; Calculate new daily target based on remaining words and remaining days
+        (let ((new-daily-words (if (> remaining-days 0)
+                                  (ceiling (/ (float remaining-words) remaining-days))
+                                0)))
+          ;; Keep total-words unchanged (original objective)
+          ;; Keep daily-word-counts unchanged (user's history)
+          ;; Update current-words to reflect actual progress
+          (setf (org-scribe-plan-current-words plan) cumulative-actual)
+          (setf (org-scribe-plan-daily-words plan) new-daily-words)
+          (message "Recalculated: %d words remaining, new daily target is %d words (keeping end date %s)"
+                   remaining-words new-daily-words end-date)))))
+
+    ;; Save and display
+    (org-scribe-planner--save-plan plan)
+    (org-scribe-planner-show-calendar plan)
+    (message "Plan recalculated and saved")))
 
 ;;;###autoload
 (defun org-scribe-planner-recalculate ()
