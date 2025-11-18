@@ -308,8 +308,30 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                             (org-scribe-plan-daily-words plan)
                             (- (org-scribe-plan-days plan) num-spare))))))))
 
-          ;; Save to org file
-          (org-scribe-planner--save-plan plan)
+          ;; Ask user for save location
+          (let* ((default-filename (concat (downcase (replace-regexp-in-string
+                                                     "[^[:alnum:]]" "-"
+                                                     (org-scribe-plan-title plan)))
+                                          ".org"))
+                 (default-filepath (expand-file-name default-filename org-scribe-planner-directory))
+                 (save-location (read-file-name "Save plan to: "
+                                              org-scribe-planner-directory
+                                              default-filepath
+                                              nil
+                                              default-filename))
+                 (save-dir (file-name-directory save-location)))
+
+            ;; Ensure the directory exists
+            (if (file-exists-p save-dir)
+                ;; Directory exists, save the plan
+                (org-scribe-planner--save-plan plan save-location)
+              ;; Directory doesn't exist, ask to create it
+              (if (y-or-n-p (format "Directory %s does not exist. Create it? " save-dir))
+                  (progn
+                    (make-directory save-dir t)
+                    (org-scribe-planner--save-plan plan save-location))
+                ;; User declined to create directory
+                (error "Cannot save plan: directory does not exist"))))
 
           ;; Display the plan
           (org-scribe-planner-show-calendar plan))
@@ -394,17 +416,20 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
 
 ;;; Org-mode Integration
 
-(defun org-scribe-planner--save-plan (plan)
-  "Save PLAN to an Org-mode file."
+(defun org-scribe-planner--save-plan (plan &optional filepath)
+  "Save PLAN to an Org-mode file.
+If FILEPATH is not provided, generate a default filename in org-scribe-planner-directory."
   (let* ((filename (concat (downcase (replace-regexp-in-string
                                      "[^[:alnum:]]" "-"
                                      (org-scribe-plan-title plan)))
                           ".org"))
-         (filepath (expand-file-name filename org-scribe-planner-directory)))
+         (filepath (or filepath
+                      (expand-file-name filename org-scribe-planner-directory))))
 
     ;; Ensure directory exists
-    (unless (file-exists-p org-scribe-planner-directory)
-      (make-directory org-scribe-planner-directory t))
+    (let ((save-dir (file-name-directory filepath)))
+      (unless (file-exists-p save-dir)
+        (make-directory save-dir t)))
 
     ;; Create or update org file
     (with-current-buffer (find-file-noselect filepath)
