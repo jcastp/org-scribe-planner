@@ -543,7 +543,8 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
               (week-num 1)
               (week-words 0)
               (prev-week-start nil)
-              (cumulative-actual 0))
+              (cumulative-actual 0)
+              (expected-total 0))
 
           (dolist (day schedule)
             (let* ((date (plist-get day :date))
@@ -564,9 +565,15 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                                 ""))
                    (face (if is-spare 'org-agenda-dimmed-todo-face 'default)))
 
-              ;; Update cumulative actual word count
-              (when actual
-                (setq cumulative-actual (+ cumulative-actual actual)))
+              ;; Update cumulative actual word count and expected total
+              (if actual
+                  ;; Has actual data - expected matches actual
+                  (progn
+                    (setq cumulative-actual (+ cumulative-actual actual))
+                    (setq expected-total cumulative-actual))
+                ;; No actual data - add daily target to expected (skip spare days)
+                (unless is-spare
+                  (setq expected-total (+ expected-total words))))
 
               ;; Week header (starts on Monday)
               (when (or is-monday (null prev-week-start))
@@ -595,7 +602,7 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
               ;; Day entry with columnar formatting
               (let* ((date-col (format "%s (%-9s)" date day-name))
                      (target-col (if is-spare "REST" (format "%5d words" words)))
-                     (cumulative-col (format "%6d total" cumulative))
+                     (expected-col (format "%6d total" expected-total))
                      (cumulative-actual-col (if (> cumulative-actual 0)
                                                (format "%6d actual" cumulative-actual)
                                              ""))
@@ -607,7 +614,7 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                         (format "  %-23s  %12s  →  %12s  |  %-13s  |  %s%s\n"
                                date-col
                                target-col
-                               cumulative-col
+                               expected-col
                                cumulative-actual-col
                                (if actual "Daily: " "")
                                (if actual daily-actual-col note-col))
