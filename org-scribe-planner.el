@@ -413,7 +413,7 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                 (error "Cannot save plan: directory does not exist"))))
 
           ;; Display the plan
-          (org-scribe-planner-show-calendar plan))
+          (org-scribe-planner-show-calendar plan save-location))
       (error
        (message "Error creating plan: %s" (error-message-string err))))))
 
@@ -695,12 +695,13 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                              (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
-        (org-scribe-planner-show-calendar plan)))))
+        (org-scribe-planner-show-calendar plan file)))))
 
 ;;; Calendar Visualization
 
-(defun org-scribe-planner-show-calendar (plan)
-  "Display a calendar visualization for PLAN."
+(defun org-scribe-planner-show-calendar (plan &optional filepath)
+  "Display a calendar visualization for PLAN.
+Optional FILEPATH shows the location of the plan file."
   (let ((buffer (get-buffer-create org-scribe-planner-calendar-buffer)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
@@ -710,6 +711,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
         ;; Header
         (insert (propertize (format "Writing Plan: %s\n" (org-scribe-plan-title plan))
                            'face 'org-level-1))
+        (when filepath
+          (insert (propertize (format "Location: %s\n" filepath)
+                             'face 'org-document-info)))
         (insert (make-string 80 ?=) "\n\n")
 
         ;; Summary
@@ -933,7 +937,7 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
           (save-buffer))
 
         ;; Show updated calendar
-        (org-scribe-planner-show-calendar plan)
+        (org-scribe-planner-show-calendar plan file)
         (org-scribe-planner--show-progress-report plan)))))
 
 ;;;###autoload
@@ -1061,7 +1065,7 @@ FILE is the path where the plan should be saved."
 
     ;; Save and display (save to the file location that was passed in)
     (org-scribe-planner--save-plan plan file)
-    (org-scribe-planner-show-calendar plan)
+    (org-scribe-planner-show-calendar plan file)
     (message "Plan recalculated and saved")))
 
 ;;;###autoload
@@ -1120,7 +1124,7 @@ FILE is the path where the plan should be saved."
         (org-scribe-planner--save-plan plan file)
 
         ;; Show updated calendar
-        (org-scribe-planner-show-calendar plan)
+        (org-scribe-planner-show-calendar plan file)
         (message "Plan recalculated and saved")))))
 
 ;;; Milestone Tracking
