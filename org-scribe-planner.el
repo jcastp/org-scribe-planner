@@ -65,7 +65,7 @@
   (spare-days nil :type list)    ; List of dates in "YYYY-MM-DD" format
   (current-words 0 :type number)
   (org-heading-marker nil)       ; Marker to org heading
-  (daily-word-counts nil :type list)) ; Alist of (date . word-count) pairs
+  (daily-word-counts nil :type list)) ; Alist of (date . (word-count . note)) pairs
 
 ;;; Core Calculation Functions
 
@@ -588,8 +588,13 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 
         (when (org-scribe-plan-daily-word-counts plan)
           (org-set-property "DAILY_WORD_COUNTS"
-                           (mapconcat (lambda (pair)
-                                       (format "%s:%d" (car pair) (cdr pair)))
+                           (mapconcat (lambda (entry)
+                                       (let ((date (car entry))
+                                             (word-count (cadr entry))
+                                             (note (cddr entry)))
+                                         (if (and note (not (string-empty-p note)))
+                                             (format "%s:%d:%s" date word-count note)
+                                           (format "%s:%d" date word-count))))
                                      (org-scribe-plan-daily-word-counts plan)
                                      ",")))
 
@@ -606,7 +611,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
             (let* ((date (plist-get day :date))
                    (target (plist-get day :words))
                    (is-spare (plist-get day :is-spare-day))
-                   (actual (cdr (assoc date daily-counts)))
+                   (daily-entry (cdr (assoc date daily-counts)))
+                   (actual (when daily-entry (car daily-entry)))
+                   (note (when daily-entry (cdr daily-entry)))
                    (percentage (if (and actual (not is-spare) (> target 0))
                                   (format "%.1f%%" (* 100.0 (/ (float actual) target)))
                                 "")))
@@ -627,7 +634,10 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                              expected-total
                              (if actual (number-to-string actual) "")
                              percentage
-                             (if is-spare "Spare day" ""))))))
+                             (cond
+                              (is-spare "Spare day")
+                              ((and note (not (string-empty-p note))) note)
+                              (t "")))))))
 
         (org-table-align)
         (save-buffer)
@@ -662,9 +672,11 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
         (let ((daily-counts-str (org-entry-get nil "DAILY_WORD_COUNTS")))
           (when daily-counts-str
             (setf (org-scribe-plan-daily-word-counts plan)
-                  (mapcar (lambda (pair-str)
-                           (let ((parts (split-string pair-str ":" t " ")))
-                             (cons (car parts) (string-to-number (cadr parts)))))
+                  (mapcar (lambda (entry-str)
+                           (let ((parts (split-string entry-str ":" t " ")))
+                             (cons (car parts)           ; date
+                                   (cons (string-to-number (cadr parts))  ; word-count
+                                         (or (caddr parts) "")))))        ; note (default to empty string if not present)
                          (split-string daily-counts-str "," t " ")))))
 
         (setf (org-scribe-plan-org-heading-marker plan)
@@ -731,7 +743,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                    (words (plist-get day :words))
                    (cumulative (plist-get day :cumulative))
                    (is-spare (plist-get day :is-spare-day))
-                   (actual (cdr (assoc date daily-counts)))
+                   (daily-entry (cdr (assoc date daily-counts)))
+                   (actual (when daily-entry (car daily-entry)))
+                   (note (when daily-entry (cdr daily-entry)))
                    ;; Parse date to get day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
                    (date-parts (mapcar 'string-to-number (split-string date "-")))
                    (year (nth 0 date-parts))
@@ -760,20 +774,22 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                 (insert (propertize (format "\nWeek %d:\n" week-num) 'face 'org-level-3))
                 ;; Add column headers
                 (insert (propertize
-                        (format "  %-23s  %-12s     %-12s  |  %-13s  |  %s\n"
+                        (format "  %-25s  %-13s  %-15s  %-15s  %-23s  %s\n"
                                "Date (Day)"
                                "Daily Target"
                                "Expected Total"
                                "Actual Total"
-                               "Daily Actual")
+                               "Daily Actual"
+                               "Notes")
                         'face 'bold))
                 (insert (propertize
-                        (format "  %s  %s     %s  |  %s  |  %s\n"
-                               (make-string 23 ?-)
-                               (make-string 12 ?-)
-                               (make-string 12 ?-)
+                        (format "  %s  %s  %s  %s  %s  %s\n"
+                               (make-string 25 ?-)
                                (make-string 13 ?-)
-                               (make-string 25 ?-))
+                               (make-string 15 ?-)
+                               (make-string 15 ?-)
+                               (make-string 23 ?-)
+                               (make-string 30 ?-))
                         'face 'org-level-4))
                 (setq week-num (1+ week-num)
                       week-words 0
@@ -781,23 +797,26 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 
               ;; Day entry with columnar formatting
               (let* ((date-col (format "%s (%-9s)" date day-name))
-                     (target-col (if is-spare "REST" (format "%5d words" words)))
-                     (expected-col (format "%6d total" expected-total))
+                     (target-col (if is-spare "REST" (format "%d words" words)))
+                     (expected-col (format "%d words" expected-total))
                      (cumulative-actual-col (if (> cumulative-actual 0)
-                                               (format "%6d actual" cumulative-actual)
+                                               (format "%d words" cumulative-actual)
                                              ""))
                      (daily-actual-col (if actual
-                                          (format "%5d words %s" actual percentage)
+                                          (format "%d words %s" actual percentage)
                                         ""))
-                     (note-col (if is-spare "(spare day)" "")))
+                     (note-col (cond
+                                (is-spare "(spare day)")
+                                ((and note (not (string-empty-p note))) note)
+                                (t ""))))
                 (insert (propertize
-                        (format "  %-23s  %12s  →  %12s  |  %-13s  |  %s%s\n"
+                        (format "  %-25s  %-13s  %-15s  %-15s  %-23s  %s\n"
                                date-col
                                target-col
                                expected-col
                                cumulative-actual-col
-                               (if actual "Daily: " "")
-                               (if actual daily-actual-col note-col))
+                               daily-actual-col
+                               note-col)
                         'face face)))
 
               (setq week-words (+ week-words words))
@@ -932,18 +951,20 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
              (schedule (org-scribe-planner--generate-day-schedule plan))
              (dates (mapcar (lambda (day) (plist-get day :date)) schedule))
              (date (completing-read "Select date: " dates nil t))
-             (word-count (read-number "Word count for this day: " 0)))
+             (word-count (read-number "Word count for this day: " 0))
+             (note (read-string "Notes (optional): " "")))
 
-        ;; Update or add the daily word count
+        ;; Update or add the daily word count and note
         (let ((existing (assoc date (org-scribe-plan-daily-word-counts plan))))
           (if existing
-              (setcdr existing word-count)
-            (push (cons date word-count) (org-scribe-plan-daily-word-counts plan))))
+              (setcdr existing (cons word-count note))
+            (push (cons date (cons word-count note)) (org-scribe-plan-daily-word-counts plan))))
 
         ;; Save the updated plan to the same file location
         (org-scribe-planner--save-plan plan file)
 
-        (message "Updated word count for %s to %d" date word-count)
+        (message "Updated word count for %s to %d%s" date word-count
+                 (if (string-empty-p note) "" (format " (note: %s)" note)))
 
         ;; Ask if user wants to recalculate future targets based on cumulative progress
         (when (y-or-n-p "Would you like to recalculate the plan based on your cumulative progress? ")
@@ -979,7 +1000,7 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
   "Recalculate PLAN based on cumulative actual progress.
 FILE is the path where the plan should be saved."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
-         (cumulative-actual (apply '+ (mapcar 'cdr daily-counts)))
+         (cumulative-actual (apply '+ (mapcar (lambda (entry) (cadr entry)) daily-counts)))
          (total-words (org-scribe-plan-total-words plan))
          (remaining-words (- total-words cumulative-actual))
          (today (format-time-string "%Y-%m-%d"))
