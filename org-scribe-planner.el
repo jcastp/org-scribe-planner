@@ -257,6 +257,20 @@ Returns validated date string or nil (if ALLOW-EMPTY and user entered nothing)."
 
     date-input))
 
+;;; File Selection Helper
+
+(defun org-scribe-planner--select-plan-file (prompt)
+  "Prompt user to select a plan file with PROMPT.
+Returns the selected file path."
+  (read-file-name prompt
+                  org-scribe-planner-directory
+                  nil
+                  t
+                  nil
+                  (lambda (name) (string-match-p "\\.org$" name))))
+
+;;; Schedule Generation
+
 (defun org-scribe-planner--generate-day-schedule (plan)
   "Generate a list of writing days with cumulative word counts for PLAN.
 Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
@@ -687,12 +701,7 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-load-plan ()
   "Load an existing writing plan."
   (interactive)
-  (let ((file (read-file-name "Select plan file: "
-                             org-scribe-planner-directory
-                             nil
-                             t
-                             nil
-                             (lambda (name) (string-match-p "\\.org$" name)))))
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
         (org-scribe-planner-show-calendar plan file)))))
@@ -900,12 +909,7 @@ Optional FILEPATH shows the location of the plan file."
 (defun org-scribe-planner-sync-agenda ()
   "Sync current writing plan to org-agenda."
   (interactive)
-  (let ((file (read-file-name "Select plan file to sync: "
-                             org-scribe-planner-directory
-                             nil
-                             t
-                             nil
-                             (lambda (name) (string-match-p "\\.org$" name)))))
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file to sync: ")))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
         (org-scribe-planner--add-agenda-entries plan file)
@@ -917,12 +921,7 @@ Optional FILEPATH shows the location of the plan file."
 (defun org-scribe-planner-update-progress ()
   "Update the current word count for a writing plan."
   (interactive)
-  (let ((file (read-file-name "Select plan file: "
-                             org-scribe-planner-directory
-                             nil
-                             t
-                             nil
-                             (lambda (name) (string-match-p "\\.org$" name)))))
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
     (when file
       (let ((plan (org-scribe-planner--load-plan file))
             (new-count (read-number "Current word count: ")))
@@ -944,12 +943,7 @@ Optional FILEPATH shows the location of the plan file."
 (defun org-scribe-planner-update-daily-word-count ()
   "Update the actual word count for a specific day."
   (interactive)
-  (let ((file (read-file-name "Select plan file: "
-                             org-scribe-planner-directory
-                             nil
-                             t
-                             nil
-                             (lambda (name) (string-match-p "\\.org$" name)))))
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
     (when file
       (let* ((plan (org-scribe-planner--load-plan file))
              (schedule (org-scribe-planner--generate-day-schedule plan))
@@ -1072,12 +1066,7 @@ FILE is the path where the plan should be saved."
 (defun org-scribe-planner-recalculate ()
   "Recalculate a writing plan with new parameters."
   (interactive)
-  (let ((file (read-file-name "Select plan file to recalculate: "
-                             org-scribe-planner-directory
-                             nil
-                             t
-                             nil
-                             (lambda (name) (string-match-p "\\.org$" name)))))
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file to recalculate: ")))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
 
@@ -1150,12 +1139,7 @@ FILE is the path where the plan should be saved."
 (defun org-scribe-planner-show-milestones ()
   "Show milestone dates for a writing plan."
   (interactive)
-  (let ((file (read-file-name "Select plan file: "
-                             org-scribe-planner-directory
-                             nil
-                             t
-                             nil
-                             (lambda (name) (string-match-p "\\.org$" name)))))
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
     (when file
       (let* ((plan (org-scribe-planner--load-plan file))
              (milestones (org-scribe-planner--get-milestones plan))
