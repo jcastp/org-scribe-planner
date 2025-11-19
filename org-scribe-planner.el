@@ -472,17 +472,25 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
 
     (while continue
       (let ((method (completing-read
-                    "Add spare days by: "
-                    '("Specific date" "Date range" "All weekends" "All Saturdays" "All Sundays" "Done")
+                    "Configure spare days: "
+                    '("Add: Specific date"
+                      "Add: Date range"
+                      "Add: All weekends"
+                      "Add: All Saturdays"
+                      "Add: All Sundays"
+                      "Remove: Specific date"
+                      "Remove: All spare days"
+                      "List current spare days"
+                      "Done")
                     nil t)))
         (cond
-         ((equal method "Specific date")
+         ((equal method "Add: Specific date")
           (let ((date (org-scribe-planner--read-date "Enter date (YYYY-MM-DD)" nil t)))
             (when date
               (push date spare-days)
               (message "Added %s as spare day" date))))
 
-         ((equal method "Date range")
+         ((equal method "Add: Date range")
           (let ((start (org-scribe-planner--read-date "Start date (YYYY-MM-DD)" nil t))
                 (end (when start
                        (org-scribe-planner--read-date "End date (YYYY-MM-DD)" nil t))))
@@ -491,20 +499,45 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                                       (org-scribe-planner--generate-date-range start end)))
               (message "Added dates from %s to %s" start end))))
 
-         ((equal method "All weekends")
+         ((equal method "Add: All weekends")
           (setq spare-days (append spare-days
                                   (org-scribe-planner--get-weekends plan)))
           (message "Added all weekends"))
 
-         ((equal method "All Saturdays")
+         ((equal method "Add: All Saturdays")
           (setq spare-days (append spare-days
                                   (org-scribe-planner--get-day-of-week plan 6)))
           (message "Added all Saturdays"))
 
-         ((equal method "All Sundays")
+         ((equal method "Add: All Sundays")
           (setq spare-days (append spare-days
                                   (org-scribe-planner--get-day-of-week plan 0)))
           (message "Added all Sundays"))
+
+         ((equal method "Remove: Specific date")
+          (if (null spare-days)
+              (message "No spare days to remove")
+            (let ((date (completing-read "Select date to remove: "
+                                        (sort (copy-sequence spare-days) 'string<)
+                                        nil t)))
+              (when date
+                (setq spare-days (delete date spare-days))
+                (message "Removed %s from spare days" date)))))
+
+         ((equal method "Remove: All spare days")
+          (if (null spare-days)
+              (message "No spare days to remove")
+            (when (y-or-n-p (format "Remove all %d spare days? " (length spare-days)))
+              (setq spare-days nil)
+              (message "Removed all spare days"))))
+
+         ((equal method "List current spare days")
+          (if (null spare-days)
+              (message "No spare days configured")
+            (let ((sorted-days (sort (copy-sequence spare-days) 'string<)))
+              (message "Current spare days (%d): %s"
+                      (length sorted-days)
+                      (mapconcat 'identity sorted-days ", ")))))
 
          ((equal method "Done")
           (setq continue nil)))))
@@ -1126,7 +1159,9 @@ FILE is the path where the plan should be saved."
                       '("Daily words (recalc days needed)"
                         "Days available (recalc daily words)"
                         "Total words (recalc daily words)"
-                        "Add/modify spare days")
+                        "Add/modify spare days"
+                        "Remove spare days"
+                        "Clear all spare days")
                       nil t)))
 
           (cond
@@ -1153,11 +1188,37 @@ FILE is the path where the plan should be saved."
               (setf (org-scribe-plan-daily-words plan) nil)
               (org-scribe-planner--calculate-missing-variable plan)))
 
-           ((string-match "spare days" choice)
+           ((string-match "Add/modify spare days" choice)
             (org-scribe-planner--configure-spare-days plan)
             (setf (org-scribe-plan-daily-words plan) nil)
             (org-scribe-planner--calculate-missing-variable plan)
-            (org-scribe-planner--calculate-dates plan))))
+            (org-scribe-planner--calculate-dates plan))
+
+           ((string-match "Remove spare days" choice)
+            (let ((current-spare-days (org-scribe-plan-spare-days plan)))
+              (if (null current-spare-days)
+                  (message "No spare days to remove")
+                (let ((date (completing-read "Select date to remove: "
+                                            (sort (copy-sequence current-spare-days) 'string<)
+                                            nil t)))
+                  (when date
+                    (setf (org-scribe-plan-spare-days plan)
+                          (delete date current-spare-days))
+                    (setf (org-scribe-plan-daily-words plan) nil)
+                    (org-scribe-planner--calculate-missing-variable plan)
+                    (org-scribe-planner--calculate-dates plan)
+                    (message "Removed %s from spare days and recalculated plan" date))))))
+
+           ((string-match "Clear all spare days" choice)
+            (let ((current-spare-days (org-scribe-plan-spare-days plan)))
+              (if (null current-spare-days)
+                  (message "No spare days to clear")
+                (when (y-or-n-p (format "Remove all %d spare days and recalculate? " (length current-spare-days)))
+                  (setf (org-scribe-plan-spare-days plan) nil)
+                  (setf (org-scribe-plan-daily-words plan) nil)
+                  (org-scribe-planner--calculate-missing-variable plan)
+                  (org-scribe-planner--calculate-dates plan)
+                  (message "Cleared all spare days and recalculated plan")))))))
 
         ;; Save updated plan to the same file location
         (org-scribe-planner--save-plan plan file)
