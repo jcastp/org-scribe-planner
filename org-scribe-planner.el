@@ -524,8 +524,12 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-load-plan ()
   "Load an existing writing plan."
   (interactive)
-  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
-         (file (completing-read "Select plan: " files nil t)))
+  (let ((file (read-file-name "Select plan file: "
+                             org-scribe-planner-directory
+                             nil
+                             t
+                             nil
+                             (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
         (org-scribe-planner-show-calendar plan)))))
@@ -722,8 +726,12 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-sync-agenda ()
   "Sync current writing plan to org-agenda."
   (interactive)
-  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
-         (file (completing-read "Select plan to sync: " files nil t)))
+  (let ((file (read-file-name "Select plan file to sync: "
+                             org-scribe-planner-directory
+                             nil
+                             t
+                             nil
+                             (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
         (org-scribe-planner--add-agenda-entries plan file)
@@ -735,8 +743,12 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-update-progress ()
   "Update the current word count for a writing plan."
   (interactive)
-  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
-         (file (completing-read "Select plan: " files nil t)))
+  (let ((file (read-file-name "Select plan file: "
+                             org-scribe-planner-directory
+                             nil
+                             t
+                             nil
+                             (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let ((plan (org-scribe-planner--load-plan file))
             (new-count (read-number "Current word count: ")))
@@ -758,8 +770,12 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-update-daily-word-count ()
   "Update the actual word count for a specific day."
   (interactive)
-  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
-         (file (completing-read "Select plan: " files nil t)))
+  (let ((file (read-file-name "Select plan file: "
+                             org-scribe-planner-directory
+                             nil
+                             t
+                             nil
+                             (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let* ((plan (org-scribe-planner--load-plan file))
              (schedule (org-scribe-planner--generate-day-schedule plan))
@@ -773,8 +789,8 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
               (setcdr existing word-count)
             (push (cons date word-count) (org-scribe-plan-daily-word-counts plan))))
 
-        ;; Save the updated plan
-        (org-scribe-planner--save-plan plan)
+        ;; Save the updated plan to the same file location
+        (org-scribe-planner--save-plan plan file)
 
         (message "Updated word count for %s to %d" date word-count)
 
@@ -808,8 +824,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
        (if (>= ahead-behind 0) "+" "")
        ahead-behind))))
 
-(defun org-scribe-planner-recalculate-from-progress (plan _file)
-  "Recalculate PLAN based on cumulative actual progress."
+(defun org-scribe-planner-recalculate-from-progress (plan file)
+  "Recalculate PLAN based on cumulative actual progress.
+FILE is the path where the plan should be saved."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
          (cumulative-actual (apply '+ (mapcar 'cdr daily-counts)))
          (total-words (org-scribe-plan-total-words plan))
@@ -870,8 +887,8 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
           (message "Recalculated: %d words remaining, new daily target is %d words (keeping end date %s)"
                    remaining-words new-daily-words end-date)))))
 
-    ;; Save and display
-    (org-scribe-planner--save-plan plan)
+    ;; Save and display (save to the file location that was passed in)
+    (org-scribe-planner--save-plan plan file)
     (org-scribe-planner-show-calendar plan)
     (message "Plan recalculated and saved")))
 
@@ -879,8 +896,12 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-recalculate ()
   "Recalculate a writing plan with new parameters."
   (interactive)
-  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
-         (file (completing-read "Select plan to recalculate: " files nil t)))
+  (let ((file (read-file-name "Select plan file to recalculate: "
+                             org-scribe-planner-directory
+                             nil
+                             t
+                             nil
+                             (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
 
@@ -923,8 +944,8 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
             (org-scribe-planner--calculate-missing-variable plan)
             (org-scribe-planner--calculate-dates plan))))
 
-        ;; Save updated plan
-        (org-scribe-planner--save-plan plan)
+        ;; Save updated plan to the same file location
+        (org-scribe-planner--save-plan plan file)
 
         ;; Show updated calendar
         (org-scribe-planner-show-calendar plan)
@@ -939,8 +960,8 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
          (milestones '((25 . nil) (50 . nil) (75 . nil) (100 . nil))))
 
     (dolist (day schedule)
-      (let ((cumulative (plist-get day :cumulative))
-            (percent (* 100.0 (/ (float cumulative) total))))
+      (let* ((cumulative (plist-get day :cumulative))
+             (percent (* 100.0 (/ (float cumulative) total))))
 
         (dolist (milestone milestones)
           (when (and (>= percent (car milestone))
@@ -953,8 +974,12 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-show-milestones ()
   "Show milestone dates for a writing plan."
   (interactive)
-  (let* ((files (directory-files org-scribe-planner-directory t "\\.org$"))
-         (file (completing-read "Select plan: " files nil t)))
+  (let ((file (read-file-name "Select plan file: "
+                             org-scribe-planner-directory
+                             nil
+                             t
+                             nil
+                             (lambda (name) (string-match-p "\\.org$" name)))))
     (when file
       (let* ((plan (org-scribe-planner--load-plan file))
              (milestones (org-scribe-planner--get-milestones plan))
