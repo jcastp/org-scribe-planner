@@ -459,7 +459,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
       (goto-char (point-max))
       (insert "\n** Schedule\n\n")
       (let ((schedule (org-scribe-planner--generate-day-schedule plan))
-            (daily-counts (org-scribe-plan-daily-word-counts plan)))
+            (daily-counts (org-scribe-plan-daily-word-counts plan))
+            (cumulative-actual 0)
+            (expected-total 0))
         (insert "| Date | Target | Cumulative | Actual | Progress % | Notes |\n")
         (insert "|------+--------+------------+--------+------------+-------|\n")
         (dolist (day schedule)
@@ -470,10 +472,21 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                  (percentage (if (and actual (not is-spare) (> target 0))
                                 (format "%.1f%%" (* 100.0 (/ (float actual) target)))
                               "")))
+
+            ;; Calculate cumulative the same way as in the report
+            (if actual
+                ;; Has actual data - expected matches actual
+                (progn
+                  (setq cumulative-actual (+ cumulative-actual actual))
+                  (setq expected-total cumulative-actual))
+              ;; No actual data - add daily target to expected (skip spare days)
+              (unless is-spare
+                (setq expected-total (+ expected-total target))))
+
             (insert (format "| %s | %s | %d | %s | %s | %s |\n"
                            date
                            (if is-spare "REST" (number-to-string target))
-                           (plist-get day :cumulative)
+                           expected-total
                            (if actual (number-to-string actual) "")
                            percentage
                            (if is-spare "Spare day" ""))))))
