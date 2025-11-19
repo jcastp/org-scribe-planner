@@ -2,16 +2,28 @@
 
 A comprehensive writing planning tool for Emacs Org-mode, inspired by [pacemaker.press](https://pacemaker.press). Calculate, visualize, and manage your writing goals through an interactive interface that integrates seamlessly with Org-mode.
 
+## Recent Updates
+
+### Version 0.2.0
+- **Spare Day Management**: Full control over spare days - add, remove individually, or clear all at once
+- **Daily Word Count Tracking**: Track actual words written each day with optional notes
+- **Improved Error Messages**: Clear, actionable error messages with specific suggestions
+- **File Location Display**: Calendar view now shows where your plan file is saved
+- **Input Validation**: All numeric and date inputs are validated with helpful feedback
+- **Bug Fixes**: Fixed recalculate menu pattern matching for more reliable operation
+
 ## Features
 
 ### Core Functionality
 - **Smart Calculation**: Provide any 2 of 3 variables (total words, daily words, days) and automatically calculate the third
 - **Beautiful Visualizations**: Dual calendar system with custom buffer display and org-agenda integration
-- **Flexible Spare Days**: Manage breaks, holidays, and weekends with multiple configuration options
+- **Flexible Spare Days**: Add, remove, and manage breaks, holidays, and weekends with multiple configuration options
 - **Plan Modification**: Easily recalculate your plan when circumstances change
 - **Progress Tracking**: Update your word count and see if you're ahead or behind schedule
+- **Daily Word Count Tracking**: Record actual words written per day with optional notes
 - **Milestone Tracking**: Automatic calculation of 25%, 50%, 75%, and 100% completion dates
 - **Org-mode Integration**: Save plans as org files with properties and scheduled entries
+- **Smart Error Messages**: Clear, actionable error messages with helpful suggestions
 
 ### Planning Modes
 
@@ -62,6 +74,7 @@ git clone https://codeberg.org/jcastp/org-scribe-planner.git
   (("C-c w n" . org-scribe-planner-new-plan)
    ("C-c w l" . org-scribe-planner-load-plan)
    ("C-c w u" . org-scribe-planner-update-progress)
+   ("C-c w d" . org-scribe-planner-update-daily-word-count)
    ("C-c w r" . org-scribe-planner-recalculate)
    ("C-c w m" . org-scribe-planner-show-milestones)
    ("C-c w s" . org-scribe-planner-sync-agenda)))
@@ -85,11 +98,14 @@ Run `M-x org-scribe-planner-new-plan` and follow the interactive prompts:
 4. **Set start date**: Press Enter for today, or specify YYYY-MM-DD format
 
 5. **Configure spare days** (optional):
-   - **Specific date**: Add individual dates (2024-12-25 for Christmas)
-   - **Date range**: Add multiple consecutive dates
-   - **All weekends**: Automatically add all Saturdays and Sundays
-   - **All Saturdays**: Add only Saturdays
-   - **All Sundays**: Add only Sundays
+   - **Add: Specific date**: Add individual dates (2024-12-25 for Christmas)
+   - **Add: Date range**: Add multiple consecutive dates
+   - **Add: All weekends**: Automatically add all Saturdays and Sundays
+   - **Add: All Saturdays**: Add only Saturdays
+   - **Add: All Sundays**: Add only Sundays
+   - **Remove: Specific date**: Remove a single spare day from the list
+   - **Remove: All spare days**: Clear all configured spare days
+   - **List current spare days**: View all currently configured spare days
 
 6. **View your plan**: A beautiful calendar visualization appears showing:
    - Daily word counts
@@ -124,6 +140,8 @@ Select from your saved plans to view the calendar visualization.
 
 ### Updating Progress
 
+#### Overall Progress
+
 ```elisp
 M-x org-scribe-planner-update-progress
 ```
@@ -132,6 +150,26 @@ M-x org-scribe-planner-update-progress
 2. Enter current word count
 3. See updated calendar and progress report:
    - "Progress: 15000/50000 words (30.0%) | Ahead: +500 words"
+
+#### Daily Word Count Tracking
+
+```elisp
+M-x org-scribe-planner-update-daily-word-count
+```
+
+Track your actual words written for specific days:
+
+1. Select your plan
+2. Choose a date from the schedule
+3. Enter words written that day (0 or more)
+4. Optionally add notes (e.g., "Great writing session!", "Struggled with plot")
+5. View updated calendar with actual vs. target comparison
+
+The calendar will show:
+- Target words for each day
+- Actual words written (when tracked)
+- Percentage achieved for each day
+- Notes alongside each entry
 
 ### Recalculating Your Plan
 
@@ -142,10 +180,12 @@ M-x org-scribe-planner-recalculate
 ```
 
 Options:
-- **Daily words changed**: Recalculates days needed
-- **Days available changed**: Recalculates daily words
-- **Total words changed**: Adjusts daily words
-- **Add/modify spare days**: Updates working day calculations
+- **Daily words (recalc days needed)**: Set new daily word target and recalculate days
+- **Days available (recalc daily words)**: Set new total days and recalculate daily words
+- **Total words (recalc daily words)**: Set new word count goal and recalculate daily words
+- **Add/modify spare days**: Interactive menu to add or remove spare days
+- **Remove spare days**: Select and remove a specific spare day
+- **Clear all spare days**: Remove all spare days and recalculate
 
 ### Viewing Milestones
 
@@ -185,8 +225,8 @@ The org file is automatically added to `org-agenda-files` for easy tracking in y
 The calendar buffer provides a comprehensive view:
 
 ```
-================================================================================
 Writing Plan: My NaNoWriMo Novel 2024
+Location: ~/org/writing-projects/my-nanowrimo-novel-2024.org
 ================================================================================
 
 Summary:
@@ -202,12 +242,14 @@ Daily Schedule:
 --------------------------------------------------------------------------------
 
 Week 1:
-  2024-11-01: 2273 words → 2273 total
-  2024-11-02: REST     → 2273 total (spare day)
-  2024-11-03: REST     → 2273 total (spare day)
-  2024-11-04: 2273 words → 4546 total
-  ...
-  Week total: 11365 words
+  Date (Day)                 Daily Target   Expected Total   Actual Total     Daily Actual             Notes
+  -------------------------  -------------  ---------------  ---------------  -----------------------  ------------------------------
+  2025-11-19 (Wednesday)     1450 words     1200 words       1200 words       1200 words [82.8%]       Good day
+  2025-11-20 (Thursday )     1450 words     2700 words       2700 words       1500 words [103.4%]      
+  2025-11-21 (Friday   )     1450 words     3700 words       3700 words       1000 words [69.0%]       
+  2025-11-22 (Saturday )     REST           4702 words       4702 words       1002 words               (spare day)
+  2025-11-23 (Sunday   )     REST           5702 words       5702 words       1000 words               (spare day)
+  Week total: 4350 words
 
 Week 2:
   ...
@@ -217,7 +259,8 @@ Week 2:
 
 - `q` - Quit window
 - `r` - Recalculate plan
-- `u` - Update progress
+- `u` - Update overall progress
+- `d` - Update daily word count for a specific day
 
 ## File Structure
 
@@ -233,6 +276,7 @@ Plans are saved as org files in `org-scribe-planner-directory`:
 :END_DATE: 2024-11-30
 :CURRENT_WORDS: 15000
 :SPARE_DAYS: 2024-11-02,2024-11-03,2024-11-09,2024-11-10,...
+:DAILY_WORD_COUNTS: 2024-11-01:2500:Great start!,2024-11-04:2100:Slow day
 :END:
 
 ** Schedule
@@ -312,13 +356,27 @@ SCHEDULED: <2024-11-01>
 ## Troubleshooting
 
 ### "Not enough working days" error
-You have too many spare days. Either reduce spare days or increase total days.
+The error message will tell you exactly how many days and spare days you have. Either:
+- Use "Remove spare days" or "Clear all spare days" in the recalculate menu
+- Increase the total number of days available
+
+### "Cannot save plan" errors
+Check the error message for:
+- **File permission issues**: Ensure you have write access to the directory
+- **Directory doesn't exist**: The package will ask if you want to create it
+- **File already exists**: Make sure you're not overwriting an important file
 
 ### Plans not appearing in org-agenda
 Run `M-x org-scribe-planner-sync-agenda` to manually sync and add to `org-agenda-files`.
 
 ### Date format errors
-Ensure dates are in YYYY-MM-DD format (e.g., 2024-11-01, not 11/01/2024).
+The package now validates all dates and will prompt you to re-enter if invalid. Dates must be in YYYY-MM-DD format (e.g., 2024-11-01, not 11/01/2024).
+
+### Invalid number errors
+The package validates all numeric input:
+- For word counts and days, you must enter positive numbers (greater than 0)
+- For daily word counts, you can enter 0 or any positive number
+- Error messages will tell you what you entered and what's expected
 
 ## Contributing
 
