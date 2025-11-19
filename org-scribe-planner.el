@@ -96,7 +96,8 @@ Updates PLAN in place and returns the calculated variable as a symbol."
          ((not (numberp daily-words))
           (let ((working-days (- days num-spare-days)))
             (if (<= working-days 0)
-                (error "Not enough working days (days: %d, spare: %d)" days num-spare-days)
+                (error "Cannot calculate plan: not enough working days. Total days: %d, spare days: %d. Please reduce spare days or increase total days"
+                       days num-spare-days)
               (setf (org-scribe-plan-daily-words plan)
                     (ceiling (/ (float total-words) working-days)))
               (setq missing-var 'daily-words))))
@@ -104,7 +105,7 @@ Updates PLAN in place and returns the calculated variable as a symbol."
          ;; Calculate days
          ((not (numberp days))
           (if (<= daily-words 0)
-              (error "Daily words must be greater than 0")
+              (error "Cannot calculate plan: daily words (%d) must be greater than 0. Please enter a positive number" daily-words)
             (setf (org-scribe-plan-days plan)
                   (+ (ceiling (/ (float total-words) daily-words))
                      num-spare-days))
@@ -114,7 +115,8 @@ Updates PLAN in place and returns the calculated variable as a symbol."
        ((= non-nil-count 3)
         (let ((working-days (- days num-spare-days)))
           (when (<= working-days 0)
-            (error "Not enough working days (days: %d, spare: %d)" days num-spare-days))
+            (error "Cannot calculate plan: not enough working days. Total days: %d, spare days: %d, working days: %d. Please reduce spare days or increase total days"
+                   days num-spare-days working-days))
 
           ;; Check if the values are consistent
           (let ((calculated-total (* daily-words working-days)))
@@ -137,7 +139,7 @@ If start-date is set, calculates end-date.
 If neither is set, uses today as start-date."
   (with-slots (start-date end-date days spare-days) plan
     (unless days
-      (error "Days must be calculated before calculating dates"))
+      (error "Cannot calculate dates: days value is not set. Please ensure the plan has been properly calculated"))
 
     ;; Set start-date to today if not set
     (unless start-date
@@ -269,12 +271,44 @@ Returns the selected file path."
                   nil
                   (lambda (name) (string-match-p "\\.org$" name))))
 
+;;; Input Validation Helpers
+
+(defun org-scribe-planner--read-positive-number (prompt &optional default)
+  "Read a positive number from the user with PROMPT.
+Optional DEFAULT provides a default value.
+Ensures the number is greater than zero."
+  (let ((number nil)
+        (valid nil))
+    (while (not valid)
+      (setq number (read-number prompt default))
+      (if (<= number 0)
+          (message "Please enter a positive number greater than zero. You entered: %d" number)
+        (setq valid t)))
+    number))
+
+(defun org-scribe-planner--read-non-negative-number (prompt &optional default)
+  "Read a non-negative number from the user with PROMPT.
+Optional DEFAULT provides a default value.
+Ensures the number is greater than or equal to zero."
+  (let ((number nil)
+        (valid nil))
+    (while (not valid)
+      (setq number (read-number prompt default))
+      (if (< number 0)
+          (message "Please enter a non-negative number (0 or greater). You entered: %d" number)
+        (setq valid t)))
+    number))
+
 ;;; Schedule Generation
 
 (defun org-scribe-planner--generate-day-schedule (plan)
   "Generate a list of writing days with cumulative word counts for PLAN.
 Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
   (with-slots (start-date end-date daily-words spare-days) plan
+    (unless (and start-date end-date)
+      (error "Cannot generate schedule: start-date (%s) and end-date (%s) must be set. Please calculate dates first"
+             start-date end-date))
+
     (let ((current-date (org-scribe-planner--parse-date start-date))
           (end (org-scribe-planner--parse-date end-date))
           (cumulative 0)
@@ -322,23 +356,23 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
        ;; Total words + Days → Calculate daily words
        ((string-match-p "Calculate daily words" var-choice)
         (setf (org-scribe-plan-total-words plan)
-              (read-number "Total words to write: "))
+              (org-scribe-planner--read-positive-number "Total words to write: "))
         (setf (org-scribe-plan-days plan)
-              (read-number "Days available: ")))
+              (org-scribe-planner--read-positive-number "Days available: ")))
 
        ;; Total words + Daily words → Calculate days needed
        ((string-match-p "Calculate days needed" var-choice)
         (setf (org-scribe-plan-total-words plan)
-              (read-number "Total words to write: "))
+              (org-scribe-planner--read-positive-number "Total words to write: "))
         (setf (org-scribe-plan-daily-words plan)
-              (read-number "Words per day you can write: ")))
+              (org-scribe-planner--read-positive-number "Words per day you can write: ")))
 
        ;; Daily words + Days → Calculate total words
        ((string-match-p "Calculate total words" var-choice)
         (setf (org-scribe-plan-daily-words plan)
-              (read-number "Words per day you can write: "))
+              (org-scribe-planner--read-positive-number "Words per day you can write: "))
         (setf (org-scribe-plan-days plan)
-              (read-number "Days available: ")))
+              (org-scribe-planner--read-positive-number "Days available: ")))
 
        ;; Fallback if nothing matched (shouldn't happen, but just in case)
        (t
@@ -573,17 +607,24 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
          (filepath (or filepath
                       (expand-file-name filename org-scribe-planner-directory))))
 
-    ;; Ensure directory exists
+    ;; Ensure directory exists and is writable
     (let ((save-dir (file-name-directory filepath)))
       (unless (file-exists-p save-dir)
-        (make-directory save-dir t)))
+        (make-directory save-dir t))
+      (unless (file-writable-p save-dir)
+        (error "Cannot save plan: directory '%s' is not writable. Check directory permissions" save-dir)))
+
+    ;; Check if file exists and is writable (if it exists)
+    (when (file-exists-p filepath)
+      (unless (file-writable-p filepath)
+        (error "Cannot save plan: file '%s' is not writable. Check file permissions" filepath)))
 
     ;; Create or update org file
     (let ((buf (find-file-noselect filepath)))
       (with-current-buffer buf
         ;; Safety check before erasing
         (unless (org-scribe-planner--buffer-safe-to-erase-p buf filepath)
-          (error "File '%s' contains multiple headings or non-plan content. Please use a dedicated file for this plan" filepath))
+          (error "Cannot save plan: file '%s' contains multiple headings or non-plan content. Please use a dedicated file for this plan" filepath))
 
         (erase-buffer)
         (org-mode)
@@ -659,42 +700,51 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 
 (defun org-scribe-planner--load-plan (filepath)
   "Load a writing plan from FILEPATH."
+  ;; Check if file exists and is readable
+  (unless (file-exists-p filepath)
+    (error "Cannot load plan: file does not exist at '%s'" filepath))
+  (unless (file-readable-p filepath)
+    (error "Cannot load plan: file is not readable at '%s'. Check file permissions" filepath))
+
   (with-current-buffer (find-file-noselect filepath)
     (goto-char (point-min))
     (let ((plan (make-org-scribe-plan)))
-      (when (re-search-forward "^\\*" nil t)
-        (setf (org-scribe-plan-title plan)
-              (org-get-heading t t t t))
-        (setf (org-scribe-plan-total-words plan)
-              (string-to-number (or (org-entry-get nil "TOTAL_WORDS") "0")))
-        (setf (org-scribe-plan-daily-words plan)
-              (string-to-number (or (org-entry-get nil "DAILY_WORDS") "0")))
-        (setf (org-scribe-plan-days plan)
-              (string-to-number (or (org-entry-get nil "DAYS") "0")))
-        (setf (org-scribe-plan-start-date plan)
-              (org-entry-get nil "START_DATE"))
-        (setf (org-scribe-plan-end-date plan)
-              (org-entry-get nil "END_DATE"))
-        (setf (org-scribe-plan-current-words plan)
-              (string-to-number (or (org-entry-get nil "CURRENT_WORDS") "0")))
+      (unless (re-search-forward "^\\*" nil t)
+        (error "Cannot load plan: no org heading found in '%s'. File may be corrupted or not a valid plan file" filepath))
 
-        (let ((spare-days-str (org-entry-get nil "SPARE_DAYS")))
-          (when spare-days-str
-            (setf (org-scribe-plan-spare-days plan)
-                  (split-string spare-days-str "," t " "))))
+      ;; Heading was found, extract plan data
+      (setf (org-scribe-plan-title plan)
+            (org-get-heading t t t t))
+      (setf (org-scribe-plan-total-words plan)
+            (string-to-number (or (org-entry-get nil "TOTAL_WORDS") "0")))
+      (setf (org-scribe-plan-daily-words plan)
+            (string-to-number (or (org-entry-get nil "DAILY_WORDS") "0")))
+      (setf (org-scribe-plan-days plan)
+            (string-to-number (or (org-entry-get nil "DAYS") "0")))
+      (setf (org-scribe-plan-start-date plan)
+            (org-entry-get nil "START_DATE"))
+      (setf (org-scribe-plan-end-date plan)
+            (org-entry-get nil "END_DATE"))
+      (setf (org-scribe-plan-current-words plan)
+            (string-to-number (or (org-entry-get nil "CURRENT_WORDS") "0")))
 
-        (let ((daily-counts-str (org-entry-get nil "DAILY_WORD_COUNTS")))
-          (when daily-counts-str
-            (setf (org-scribe-plan-daily-word-counts plan)
-                  (mapcar (lambda (entry-str)
-                           (let ((parts (split-string entry-str ":" t " ")))
-                             (cons (car parts)           ; date
-                                   (cons (string-to-number (cadr parts))  ; word-count
-                                         (or (caddr parts) "")))))        ; note (default to empty string if not present)
-                         (split-string daily-counts-str "," t " ")))))
+      (let ((spare-days-str (org-entry-get nil "SPARE_DAYS")))
+        (when spare-days-str
+          (setf (org-scribe-plan-spare-days plan)
+                (split-string spare-days-str "," t " "))))
 
-        (setf (org-scribe-plan-org-heading-marker plan)
-              (point-marker)))
+      (let ((daily-counts-str (org-entry-get nil "DAILY_WORD_COUNTS")))
+        (when daily-counts-str
+          (setf (org-scribe-plan-daily-word-counts plan)
+                (mapcar (lambda (entry-str)
+                         (let ((parts (split-string entry-str ":" t " ")))
+                           (cons (car parts)           ; date
+                                 (cons (string-to-number (cadr parts))  ; word-count
+                                       (or (caddr parts) "")))))        ; note (default to empty string if not present)
+                       (split-string daily-counts-str "," t " ")))))
+
+      (setf (org-scribe-plan-org-heading-marker plan)
+            (point-marker))
       plan)))
 
 ;;;###autoload
@@ -924,7 +974,7 @@ Optional FILEPATH shows the location of the plan file."
   (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
     (when file
       (let ((plan (org-scribe-planner--load-plan file))
-            (new-count (read-number "Current word count: ")))
+            (new-count (org-scribe-planner--read-non-negative-number "Current word count: ")))
 
         (setf (org-scribe-plan-current-words plan) new-count)
 
@@ -949,7 +999,7 @@ Optional FILEPATH shows the location of the plan file."
              (schedule (org-scribe-planner--generate-day-schedule plan))
              (dates (mapcar (lambda (day) (plist-get day :date)) schedule))
              (date (completing-read "Select date: " dates nil t))
-             (word-count (read-number "Word count for this day: " 0))
+             (word-count (org-scribe-planner--read-non-negative-number "Word count for this day: " 0))
              (note (read-string "Notes (optional): " "")))
 
         ;; Update or add the daily word count and note
@@ -1081,7 +1131,7 @@ FILE is the path where the plan should be saved."
 
           (cond
            ((string-match "recalc days" choice)
-            (let ((new-daily (read-number "New daily words: "
+            (let ((new-daily (org-scribe-planner--read-positive-number "New daily words: "
                                          (org-scribe-plan-daily-words plan))))
               (setf (org-scribe-plan-daily-words plan) new-daily)
               (setf (org-scribe-plan-days plan) nil)
@@ -1089,7 +1139,7 @@ FILE is the path where the plan should be saved."
               (org-scribe-planner--calculate-dates plan)))
 
            ((string-match "Days available" choice)
-            (let ((new-days (read-number "New days available: "
+            (let ((new-days (org-scribe-planner--read-positive-number "New days available: "
                                         (org-scribe-plan-days plan))))
               (setf (org-scribe-plan-days plan) new-days)
               (setf (org-scribe-plan-daily-words plan) nil)
@@ -1097,7 +1147,7 @@ FILE is the path where the plan should be saved."
               (org-scribe-planner--calculate-dates plan)))
 
            ((string-match "Total words" choice)
-            (let ((new-total (read-number "New total words: "
+            (let ((new-total (org-scribe-planner--read-positive-number "New total words: "
                                          (org-scribe-plan-total-words plan))))
               (setf (org-scribe-plan-total-words plan) new-total)
               (setf (org-scribe-plan-daily-words plan) nil)
