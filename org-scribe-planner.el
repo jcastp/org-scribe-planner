@@ -176,6 +176,87 @@ If neither is set, uses today as start-date."
   "Check if DATE is in the SPARE-DAYS list."
   (member date spare-days))
 
+(defun org-scribe-planner--validate-date-format (date-string)
+  "Check if DATE-STRING matches YYYY-MM-DD format.
+Returns t if valid format, nil otherwise."
+  (and (stringp date-string)
+       (string-match-p "^[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}$" date-string)))
+
+(defun org-scribe-planner--validate-date (date-string)
+  "Validate DATE-STRING is in YYYY-MM-DD format and represents a valid date.
+Returns t if valid, signals an error otherwise."
+  ;; Check format first
+  (unless (org-scribe-planner--validate-date-format date-string)
+    (error "Invalid date format: '%s'. Expected YYYY-MM-DD (e.g., 2024-11-19)" date-string))
+
+  ;; Parse date components
+  (let* ((parts (mapcar 'string-to-number (split-string date-string "-")))
+         (year (nth 0 parts))
+         (month (nth 1 parts))
+         (day (nth 2 parts)))
+
+    ;; Validate month
+    (unless (and (>= month 1) (<= month 12))
+      (error "Invalid month in date '%s': month must be between 1 and 12" date-string))
+
+    ;; Validate day using calendar functions
+    ;; calendar-last-day-of-month expects (month year) format
+    (let ((max-day (calendar-last-day-of-month month year)))
+      (unless (and (>= day 1) (<= day max-day))
+        (error "Invalid day in date '%s': day must be between 1 and %d for month %d"
+               date-string max-day month)))
+
+    ;; Additional validation: try to parse it
+    (condition-case nil
+        (progn
+          (org-scribe-planner--parse-date date-string)
+          t)
+      (error
+       (error "Invalid date: '%s'. Please check the date is correct" date-string)))))
+
+(defun org-scribe-planner--read-date (prompt &optional default allow-empty)
+  "Read a date from user with PROMPT, validating YYYY-MM-DD format.
+If DEFAULT is provided, show it in prompt and use if user enters empty string.
+If ALLOW-EMPTY is non-nil, empty input returns nil without error.
+Returns validated date string or nil (if ALLOW-EMPTY and user entered nothing)."
+  (let ((date-input nil)
+        (valid nil))
+    (while (not valid)
+      (setq date-input
+            (read-string
+             (if default
+                 (format "%s (default: %s): " prompt default)
+               (format "%s: " prompt))))
+
+      (cond
+       ;; Empty input
+       ((string-empty-p date-input)
+        (cond
+         ;; Use default if provided
+         (default
+          (setq date-input default)
+          (setq valid t))
+         ;; Allow empty if specified
+         (allow-empty
+          (setq date-input nil)
+          (setq valid t))
+         ;; Otherwise, require input
+         (t
+          (message "Date is required. Please enter a date in YYYY-MM-DD format")
+          (sit-for 1))))
+
+       ;; Validate the input
+       (t
+        (condition-case err
+            (progn
+              (org-scribe-planner--validate-date date-input)
+              (setq valid t))
+          (error
+           (message "%s" (error-message-string err))
+           (sit-for 1.5))))))
+
+    date-input))
+
 (defun org-scribe-planner--generate-day-schedule (plan)
   "Generate a list of writing days with cumulative word counts for PLAN.
 Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
@@ -250,11 +331,9 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
         (error "Invalid choice: %s" var-choice))))
 
     ;; Ask about start date and set immediately (default to today)
-    (let ((start-date-input (read-string "Start date (YYYY-MM-DD, default today): ")))
-      (setf (org-scribe-plan-start-date plan)
-            (if (and start-date-input (not (string-empty-p start-date-input)))
-                start-date-input
-              (format-time-string "%Y-%m-%d"))))
+    (setf (org-scribe-plan-start-date plan)
+          (org-scribe-planner--read-date "Start date (YYYY-MM-DD)"
+                                        (format-time-string "%Y-%m-%d")))
 
     ;; Calculate missing variable and dates FIRST (before asking about spare days)
     (condition-case err
@@ -350,15 +429,16 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                     nil t)))
         (cond
          ((equal method "Specific date")
-          (let ((date (read-string "Enter date (YYYY-MM-DD): ")))
-            (when (and date (not (string-empty-p date)))
+          (let ((date (org-scribe-planner--read-date "Enter date (YYYY-MM-DD)" nil t)))
+            (when date
               (push date spare-days)
               (message "Added %s as spare day" date))))
 
          ((equal method "Date range")
-          (let ((start (read-string "Start date (YYYY-MM-DD): "))
-                (end (read-string "End date (YYYY-MM-DD): ")))
-            (when (and start end (not (string-empty-p start)) (not (string-empty-p end)))
+          (let ((start (org-scribe-planner--read-date "Start date (YYYY-MM-DD)" nil t))
+                (end (when start
+                       (org-scribe-planner--read-date "End date (YYYY-MM-DD)" nil t))))
+            (when (and start end)
               (setq spare-days (append spare-days
                                       (org-scribe-planner--generate-date-range start end)))
               (message "Added dates from %s to %s" start end))))
@@ -416,6 +496,59 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
 
 ;;; Org-mode Integration
 
+(defun org-scribe-planner--buffer-safe-to-erase-p (buffer filepath)
+  "Check if BUFFER at FILEPATH is safe to erase completely.
+Returns t if safe to erase, nil if caution is needed.
+Also checks for unsaved changes and prompts user if needed."
+  (with-current-buffer buffer
+    (let ((file-exists (file-exists-p filepath))
+          (buffer-modified (buffer-modified-p))
+          (has-content (> (buffer-size) 0)))
+
+      (cond
+       ;; Buffer has unsaved changes - warn user
+       (buffer-modified
+        (if (y-or-n-p (format "Buffer '%s' has unsaved changes. Overwrite anyway? "
+                             (buffer-name)))
+            t
+          (error "Save cancelled to preserve unsaved changes")))
+
+       ;; New file, no content - safe to write
+       ((not has-content)
+        t)
+
+       ;; Existing file with content - check if it's our plan file
+       (file-exists
+        (org-scribe-planner--is-single-plan-file-p buffer))
+
+       ;; Default to safe (new buffer, no file)
+       (t t)))))
+
+(defun org-scribe-planner--is-single-plan-file-p (buffer)
+  "Check if BUFFER contains a single org-scribe-planner plan.
+Returns t if the file appears to be a plan file we created (single heading
+with our properties), nil otherwise."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (let ((heading-count 0)
+            (has-plan-properties nil))
+
+        ;; Count top-level headings
+        (while (re-search-forward "^\\* " nil t)
+          (setq heading-count (1+ heading-count)))
+
+        ;; Check for our properties at first heading
+        (goto-char (point-min))
+        (when (re-search-forward "^\\* " nil t)
+          (setq has-plan-properties
+                (and (org-entry-get nil "TOTAL_WORDS")
+                     (org-entry-get nil "DAILY_WORDS")
+                     (org-entry-get nil "DAYS"))))
+
+        ;; Safe if exactly one heading with our properties
+        (and (= heading-count 1) has-plan-properties)))))
+
 (defun org-scribe-planner--save-plan (plan &optional filepath)
   "Save PLAN to an Org-mode file.
 If FILEPATH is not provided, generate a default filename in org-scribe-planner-directory."
@@ -432,68 +565,73 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
         (make-directory save-dir t)))
 
     ;; Create or update org file
-    (with-current-buffer (find-file-noselect filepath)
-      (erase-buffer)
-      (org-mode)
+    (let ((buf (find-file-noselect filepath)))
+      (with-current-buffer buf
+        ;; Safety check before erasing
+        (unless (org-scribe-planner--buffer-safe-to-erase-p buf filepath)
+          (error "File '%s' contains multiple headings or non-plan content. Please use a dedicated file for this plan" filepath))
 
-      ;; Insert heading with properties
-      (insert (format "* %s\n" (org-scribe-plan-title plan)))
-      (org-set-property "TOTAL_WORDS" (number-to-string (org-scribe-plan-total-words plan)))
-      (org-set-property "DAILY_WORDS" (number-to-string (org-scribe-plan-daily-words plan)))
-      (org-set-property "DAYS" (number-to-string (org-scribe-plan-days plan)))
-      (org-set-property "START_DATE" (org-scribe-plan-start-date plan))
-      (org-set-property "END_DATE" (org-scribe-plan-end-date plan))
-      (org-set-property "CURRENT_WORDS" (number-to-string (org-scribe-plan-current-words plan)))
+        (erase-buffer)
+        (org-mode)
 
-      (when (org-scribe-plan-spare-days plan)
-        (org-set-property "SPARE_DAYS" (mapconcat 'identity (org-scribe-plan-spare-days plan) ",")))
+        ;; Insert heading with properties
+        (insert (format "* %s\n" (org-scribe-plan-title plan)))
+        (org-set-property "TOTAL_WORDS" (number-to-string (org-scribe-plan-total-words plan)))
+        (org-set-property "DAILY_WORDS" (number-to-string (org-scribe-plan-daily-words plan)))
+        (org-set-property "DAYS" (number-to-string (org-scribe-plan-days plan)))
+        (org-set-property "START_DATE" (org-scribe-plan-start-date plan))
+        (org-set-property "END_DATE" (org-scribe-plan-end-date plan))
+        (org-set-property "CURRENT_WORDS" (number-to-string (org-scribe-plan-current-words plan)))
 
-      (when (org-scribe-plan-daily-word-counts plan)
-        (org-set-property "DAILY_WORD_COUNTS"
-                         (mapconcat (lambda (pair)
-                                     (format "%s:%d" (car pair) (cdr pair)))
-                                   (org-scribe-plan-daily-word-counts plan)
-                                   ",")))
+        (when (org-scribe-plan-spare-days plan)
+          (org-set-property "SPARE_DAYS" (mapconcat 'identity (org-scribe-plan-spare-days plan) ",")))
 
-      ;; Add schedule as content
-      (goto-char (point-max))
-      (insert "\n** Schedule\n\n")
-      (let ((schedule (org-scribe-planner--generate-day-schedule plan))
-            (daily-counts (org-scribe-plan-daily-word-counts plan))
-            (cumulative-actual 0)
-            (expected-total 0))
-        (insert "| Date | Target | Cumulative | Actual | Progress % | Notes |\n")
-        (insert "|------+--------+------------+--------+------------+-------|\n")
-        (dolist (day schedule)
-          (let* ((date (plist-get day :date))
-                 (target (plist-get day :words))
-                 (is-spare (plist-get day :is-spare-day))
-                 (actual (cdr (assoc date daily-counts)))
-                 (percentage (if (and actual (not is-spare) (> target 0))
-                                (format "%.1f%%" (* 100.0 (/ (float actual) target)))
-                              "")))
+        (when (org-scribe-plan-daily-word-counts plan)
+          (org-set-property "DAILY_WORD_COUNTS"
+                           (mapconcat (lambda (pair)
+                                       (format "%s:%d" (car pair) (cdr pair)))
+                                     (org-scribe-plan-daily-word-counts plan)
+                                     ",")))
 
-            ;; Calculate cumulative the same way as in the report
-            (if actual
-                ;; Has actual data - expected matches actual
-                (progn
-                  (setq cumulative-actual (+ cumulative-actual actual))
-                  (setq expected-total cumulative-actual))
-              ;; No actual data - add daily target to expected (skip spare days)
-              (unless is-spare
-                (setq expected-total (+ expected-total target))))
+        ;; Add schedule as content
+        (goto-char (point-max))
+        (insert "\n** Schedule\n\n")
+        (let ((schedule (org-scribe-planner--generate-day-schedule plan))
+              (daily-counts (org-scribe-plan-daily-word-counts plan))
+              (cumulative-actual 0)
+              (expected-total 0))
+          (insert "| Date | Target | Cumulative | Actual | Progress % | Notes |\n")
+          (insert "|------+--------+------------+--------+------------+-------|\n")
+          (dolist (day schedule)
+            (let* ((date (plist-get day :date))
+                   (target (plist-get day :words))
+                   (is-spare (plist-get day :is-spare-day))
+                   (actual (cdr (assoc date daily-counts)))
+                   (percentage (if (and actual (not is-spare) (> target 0))
+                                  (format "%.1f%%" (* 100.0 (/ (float actual) target)))
+                                "")))
 
-            (insert (format "| %s | %s | %d | %s | %s | %s |\n"
-                           date
-                           (if is-spare "REST" (number-to-string target))
-                           expected-total
-                           (if actual (number-to-string actual) "")
-                           percentage
-                           (if is-spare "Spare day" ""))))))
+              ;; Calculate cumulative the same way as in the report
+              (if actual
+                  ;; Has actual data - expected matches actual
+                  (progn
+                    (setq cumulative-actual (+ cumulative-actual actual))
+                    (setq expected-total cumulative-actual))
+                ;; No actual data - add daily target to expected (skip spare days)
+                (unless is-spare
+                  (setq expected-total (+ expected-total target))))
 
-      (org-table-align)
-      (save-buffer)
-      (message "Plan saved to %s" filepath))))
+              (insert (format "| %s | %s | %d | %s | %s | %s |\n"
+                             date
+                             (if is-spare "REST" (number-to-string target))
+                             expected-total
+                             (if actual (number-to-string actual) "")
+                             percentage
+                             (if is-spare "Spare day" ""))))))
+
+        (org-table-align)
+        (save-buffer)
+        (message "Plan saved to %s" filepath)))))
 
 (defun org-scribe-planner--load-plan (filepath)
   "Load a writing plan from FILEPATH."
