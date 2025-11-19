@@ -1087,7 +1087,7 @@ FILE is the path where the plan should be saved."
                       nil t)))
 
           (cond
-           ((string-match "Daily words" choice)
+           ((string-match "recalc days" choice)
             (let ((new-daily (read-number "New daily words: "
                                          (org-scribe-plan-daily-words plan))))
               (setf (org-scribe-plan-daily-words plan) new-daily)
