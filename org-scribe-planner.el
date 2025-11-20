@@ -849,7 +849,11 @@ Optional FILEPATH shows the location of the plan file."
         (when filepath
           (insert (propertize (format "Location: %s\n" filepath)
                              'face 'org-document-info)))
-        (insert (make-string 80 ?=) "\n\n")
+        (insert (make-string 80 ?=) "\n")
+        (insert "Commands:\n")
+        (insert "  [q] quit  [d] daily word count  [u] update progress\n")
+        (insert "  [r] recalculate plan  [a] adjust remaining days (keep end date fixed)\n")
+	(insert (make-string 80 ?=) "\n\n")
 
         ;; Summary
         (insert (propertize "Summary:\n" 'face 'org-level-2))
