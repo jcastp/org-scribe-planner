@@ -65,7 +65,7 @@
   (spare-days nil :type list)    ; List of dates in "YYYY-MM-DD" format
   (current-words 0 :type number)
   (org-heading-marker nil)       ; Marker to org heading
-  (daily-word-counts nil :type list)) ; Alist of (date . (word-count . note)) pairs
+  (daily-word-counts nil :type list)) ; Alist of (date . plist) where plist has :words :note :target
 
 ;;; Core Calculation Functions
 
@@ -677,12 +677,27 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
         (when (org-scribe-plan-daily-word-counts plan)
           (org-set-property "DAILY_WORD_COUNTS"
                            (mapconcat (lambda (entry)
-                                       (let ((date (car entry))
-                                             (word-count (cadr entry))
-                                             (note (cddr entry)))
-                                         (if (and note (not (string-empty-p note)))
-                                             (format "%s:%d:%s" date word-count note)
-                                           (format "%s:%d" date word-count))))
+                                       (let* ((date (car entry))
+                                              (data (cdr entry))
+                                              ;; Handle both old format (word-count . note) and new format (plist)
+                                              (word-count (if (listp data)
+                                                            (or (plist-get data :words) (car data))
+                                                            data))
+                                              (note (if (listp data)
+                                                       (or (plist-get data :note) (cdr data))
+                                                     ""))
+                                              (target (when (listp data) (plist-get data :target))))
+                                         (cond
+                                          ;; New format with target
+                                          (target
+                                           (if (and note (not (string-empty-p note)))
+                                               (format "%s:%d:%s:%d" date word-count note target)
+                                             (format "%s:%d::%d" date word-count target)))
+                                          ;; Old format or no target
+                                          ((and note (not (string-empty-p note)))
+                                           (format "%s:%d:%s" date word-count note))
+                                          (t
+                                           (format "%s:%d" date word-count)))))
                                      (org-scribe-plan-daily-word-counts plan)
                                      ",")))
 
@@ -697,11 +712,21 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
           (insert "|------+--------+------------+--------+------------+-------|\n")
           (dolist (day schedule)
             (let* ((date (plist-get day :date))
-                   (target (plist-get day :words))
+                   (daily-entry (assoc date daily-counts))
+                   (daily-data (when daily-entry (cdr daily-entry)))
+                   ;; Use stored target if available, otherwise use current plan's daily-words
+                   (stored-target (when (and daily-data (listp daily-data))
+                                   (plist-get daily-data :target)))
+                   (target (or stored-target (plist-get day :words)))
                    (is-spare (plist-get day :is-spare-day))
-                   (daily-entry (cdr (assoc date daily-counts)))
-                   (actual (when daily-entry (car daily-entry)))
-                   (note (when daily-entry (cdr daily-entry)))
+                   (actual (when daily-data
+                            (if (listp daily-data)
+                                (plist-get daily-data :words)
+                              (if (consp daily-data) (car daily-data) daily-data))))
+                   (note (when daily-data
+                          (if (listp daily-data)
+                              (plist-get daily-data :note)
+                            (if (consp daily-data) (cdr daily-data) ""))))
                    (percentage (if (and actual (not is-spare) (> target 0))
                                   (format "%.1f%%" (* 100.0 (/ (float actual) target)))
                                 "")))
@@ -770,10 +795,24 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
         (when daily-counts-str
           (setf (org-scribe-plan-daily-word-counts plan)
                 (mapcar (lambda (entry-str)
-                         (let ((parts (split-string entry-str ":" t " ")))
-                           (cons (car parts)           ; date
-                                 (cons (string-to-number (cadr parts))  ; word-count
-                                       (or (caddr parts) "")))))        ; note (default to empty string if not present)
+                         (let* ((parts (split-string entry-str ":" nil " "))  ; Don't skip empty parts for :: syntax
+                                (date (nth 0 parts))
+                                (word-count (string-to-number (nth 1 parts)))
+                                (note-or-empty (nth 2 parts))
+                                (target-str (nth 3 parts))
+                                ;; If we have 4 parts, it's new format: date:words:note:target or date:words::target
+                                ;; If we have 3 parts, it's old format: date:words:note
+                                ;; If we have 2 parts, it's old format: date:words
+                                (has-target (and target-str (not (string-empty-p target-str))))
+                                (note (if (and note-or-empty (not (string-empty-p note-or-empty)))
+                                         note-or-empty
+                                       ""))
+                                (target (when has-target (string-to-number target-str))))
+                           (if has-target
+                               ;; New format with target
+                               (cons date (list :words word-count :note note :target target))
+                             ;; Old format - convert to new format (no target stored)
+                             (cons date (list :words word-count :note note)))))
                        (split-string daily-counts-str "," t " ")))))
 
       (setf (org-scribe-plan-org-heading-marker plan)
@@ -836,12 +875,23 @@ Optional FILEPATH shows the location of the plan file."
 
           (dolist (day schedule)
             (let* ((date (plist-get day :date))
-                   (words (plist-get day :words))
+                   (current-daily-words (plist-get day :words))
                    (cumulative (plist-get day :cumulative))
                    (is-spare (plist-get day :is-spare-day))
-                   (daily-entry (cdr (assoc date daily-counts)))
-                   (actual (when daily-entry (car daily-entry)))
-                   (note (when daily-entry (cdr daily-entry)))
+                   (daily-entry (assoc date daily-counts))
+                   (daily-data (when daily-entry (cdr daily-entry)))
+                   ;; Use stored target for display if available, otherwise use current plan's daily-words
+                   (stored-target (when (and daily-data (listp daily-data))
+                                   (plist-get daily-data :target)))
+                   (display-target (or stored-target current-daily-words))
+                   (actual (when daily-data
+                            (if (listp daily-data)
+                                (plist-get daily-data :words)
+                              (if (consp daily-data) (car daily-data) daily-data))))
+                   (note (when daily-data
+                          (if (listp daily-data)
+                              (plist-get daily-data :note)
+                            (if (consp daily-data) (cdr daily-data) ""))))
                    ;; Parse date to get day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
                    (date-parts (mapcar 'string-to-number (split-string date "-")))
                    (year (nth 0 date-parts))
@@ -850,8 +900,8 @@ Optional FILEPATH shows the location of the plan file."
                    (day-of-week (calendar-day-of-week (list month day-num year)))
                    (day-name (calendar-day-name (list month day-num year)))
                    (is-monday (= day-of-week 1))
-                   (percentage (if (and actual (not is-spare) (> words 0))
-                                  (format "[%.1f%%]" (* 100.0 (/ (float actual) words)))
+                   (percentage (if (and actual (not is-spare) (> display-target 0))
+                                  (format "[%.1f%%]" (* 100.0 (/ (float actual) display-target)))
                                 ""))
                    (face (if is-spare 'org-agenda-dimmed-todo-face 'default)))
 
@@ -863,7 +913,7 @@ Optional FILEPATH shows the location of the plan file."
                     (setq expected-total cumulative-actual))
                 ;; No actual data - add daily target to expected (skip spare days)
                 (unless is-spare
-                  (setq expected-total (+ expected-total words))))
+                  (setq expected-total (+ expected-total current-daily-words))))
 
               ;; Week header (starts on Monday)
               (when (or is-monday (null prev-week-start))
@@ -893,7 +943,7 @@ Optional FILEPATH shows the location of the plan file."
 
               ;; Day entry with columnar formatting
               (let* ((date-col (format "%s (%-9s)" date day-name))
-                     (target-col (if is-spare "REST" (format "%d words" words)))
+                     (target-col (if is-spare "REST" (format "%d words" display-target)))
                      (expected-col (format "%d words" expected-total))
                      (cumulative-actual-col (if (> cumulative-actual 0)
                                                (format "%d words" cumulative-actual)
@@ -915,7 +965,7 @@ Optional FILEPATH shows the location of the plan file."
                                note-col)
                         'face face)))
 
-              (setq week-words (+ week-words words))
+              (setq week-words (+ week-words current-daily-words))
 
               ;; Week summary (show at end of week or end of schedule)
               (let ((next-day (cadr (member day schedule))))
@@ -928,7 +978,9 @@ Optional FILEPATH shows the location of the plan file."
                                      'face 'org-level-4)))))))
 
         (insert "\n" (make-string 80 ?=) "\n")
-        (insert "\nCommands: [q] quit  [r] recalculate  [u] update progress  [d] daily word count\n"))
+        (insert "\nCommands:\n")
+        (insert "  [q] quit  [d] daily word count  [u] update progress\n")
+        (insert "  [r] recalculate plan  [a] adjust remaining days (keep end date fixed)\n"))
 
       (goto-char (point-min))
       (display-buffer buffer))))
@@ -941,6 +993,7 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "r") #'org-scribe-planner-recalculate)
 (define-key org-scribe-planner-calendar-mode-map (kbd "u") #'org-scribe-planner-update-progress)
 (define-key org-scribe-planner-calendar-mode-map (kbd "d") #'org-scribe-planner-update-daily-word-count)
+(define-key org-scribe-planner-calendar-mode-map (kbd "a") #'org-scribe-planner-adjust-remaining-plan)
 
 ;;; Org-agenda Integration
 
@@ -998,6 +1051,37 @@ Optional FILEPATH shows the location of the plan file."
         (org-scribe-planner--add-agenda-entries plan file)
         (org-scribe-planner--update-agenda-file-list file)))))
 
+;;; Helper Functions for Daily Word Counts
+
+(defun org-scribe-planner--get-entry-words (entry)
+  "Extract word count from daily-word-count ENTRY.
+Handles both old format (date . (word-count . note)) and new format (date . plist)."
+  (let ((data (cdr entry)))
+    (if (and (listp data) (plist-member data :words))
+        (plist-get data :words)
+      ;; Old format fallback
+      (if (consp data)
+          (car data)
+        data))))
+
+(defun org-scribe-planner--get-entry-note (entry)
+  "Extract note from daily-word-count ENTRY.
+Handles both old format (date . (word-count . note)) and new format (date . plist)."
+  (let ((data (cdr entry)))
+    (if (and (listp data) (plist-member data :note))
+        (plist-get data :note)
+      ;; Old format fallback
+      (if (consp data)
+          (or (cdr data) "")
+        ""))))
+
+(defun org-scribe-planner--get-entry-target (entry)
+  "Extract target from daily-word-count ENTRY.
+Returns nil if no target is stored (old format or not set)."
+  (let ((data (cdr entry)))
+    (when (and (listp data) (plist-member data :target))
+      (plist-get data :target))))
+
 ;;; Plan Modification and Recalculation
 
 ;;;###autoload
@@ -1035,11 +1119,17 @@ Optional FILEPATH shows the location of the plan file."
              (word-count (org-scribe-planner--read-non-negative-number "Word count for this day: " 0))
              (note (read-string "Notes (optional): " "")))
 
-        ;; Update or add the daily word count and note
-        (let ((existing (assoc date (org-scribe-plan-daily-word-counts plan))))
+        ;; Update or add the daily word count, note, and target
+        ;; Get the current daily target for this date from the schedule
+        (let* ((day-info (cl-find date schedule :key (lambda (d) (plist-get d :date)) :test 'string=))
+               (current-target (if day-info (plist-get day-info :words) (org-scribe-plan-daily-words plan)))
+               (existing (assoc date (org-scribe-plan-daily-word-counts plan)))
+               (entry-data (list :words word-count
+                                :note note
+                                :target current-target)))
           (if existing
-              (setcdr existing (cons word-count note))
-            (push (cons date (cons word-count note)) (org-scribe-plan-daily-word-counts plan))))
+              (setcdr existing entry-data)
+            (push (cons date entry-data) (org-scribe-plan-daily-word-counts plan))))
 
         ;; Save the updated plan to the same file location
         (org-scribe-planner--save-plan plan file)
@@ -1048,8 +1138,8 @@ Optional FILEPATH shows the location of the plan file."
                  (if (string-empty-p note) "" (format " (note: %s)" note)))
 
         ;; Ask if user wants to recalculate future targets based on cumulative progress
-        (when (y-or-n-p "Would you like to recalculate the plan based on your cumulative progress? ")
-          (org-scribe-planner-recalculate-from-progress plan file))))))
+        (when (y-or-n-p "Would you like to recalculate the remaining plan based on your progress? ")
+          (org-scribe-planner-recalculate-remaining-days plan file))))))
 
 (defun org-scribe-planner--show-progress-report (plan)
   "Display a progress report for PLAN."
@@ -1077,11 +1167,16 @@ Optional FILEPATH shows the location of the plan file."
        (if (>= ahead-behind 0) "+" "")
        ahead-behind))))
 
-(defun org-scribe-planner-recalculate-from-progress (plan file)
-  "Recalculate PLAN based on cumulative actual progress.
+(defun org-scribe-planner-recalculate-remaining-days (plan file)
+  "Recalculate daily target for remaining days based on cumulative progress.
+Keeps end date and total words fixed. Adjusts only the daily target for
+remaining working days.
+PLAN is the writing plan to recalculate.
 FILE is the path where the plan should be saved."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
-         (cumulative-actual (apply '+ (mapcar (lambda (entry) (cadr entry)) daily-counts)))
+         (cumulative-actual (if daily-counts
+                               (apply '+ (mapcar #'org-scribe-planner--get-entry-words daily-counts))
+                             0))
          (total-words (org-scribe-plan-total-words plan))
          (remaining-words (- total-words cumulative-actual))
          (today (format-time-string "%Y-%m-%d"))
@@ -1089,12 +1184,62 @@ FILE is the path where the plan should be saved."
          (schedule (org-scribe-planner--generate-day-schedule plan))
          (remaining-days 0))
 
-    ;; Count remaining working days (from today until end, excluding spare days)
+    ;; Count remaining working days (days without actual word counts, excluding spare days)
     (dolist (day schedule)
-      (let ((date (plist-get day :date))
-            (is-spare (plist-get day :is-spare-day)))
-        (when (and (not (string< date today))
-                  (not is-spare))
+      (let* ((date (plist-get day :date))
+             (is-spare (plist-get day :is-spare-day))
+             (has-actual (assoc date daily-counts)))
+        (when (and (not has-actual)  ; Only count days without actual word counts
+                  (not is-spare))     ; Don't count spare days
+          (setq remaining-days (1+ remaining-days)))))
+
+    (if (<= remaining-days 0)
+        (message "No remaining days in the plan. Plan has ended or all remaining days are spare days.")
+      (progn
+        ;; Calculate new daily target for remaining days
+        (let ((new-daily-words (ceiling (/ (float remaining-words) remaining-days))))
+
+          (message "Recalculating plan: %d words completed, %d words remaining over %d working days"
+                   cumulative-actual remaining-words remaining-days)
+
+          ;; Update daily-words to the new target
+          (setf (org-scribe-plan-daily-words plan) new-daily-words)
+
+          ;; Keep total-words unchanged (original goal)
+          ;; Keep end-date unchanged (fixed deadline)
+          ;; Keep start-date unchanged (historical record)
+          ;; Keep days unchanged (original plan span)
+          ;; Keep spare-days unchanged (original configuration)
+          ;; Keep daily-word-counts unchanged (actual history)
+          ;; Update current-words to reflect cumulative actual progress
+          (setf (org-scribe-plan-current-words plan) cumulative-actual)
+
+          ;; Save and display
+          (org-scribe-planner--save-plan plan file)
+          (org-scribe-planner-show-calendar plan file)
+
+          (message "Plan recalculated: New daily target is %d words/day (keeping %s end date, %d total words goal)"
+                   new-daily-words end-date total-words))))))
+
+(defun org-scribe-planner-recalculate-from-progress (plan file)
+  "Recalculate PLAN based on cumulative actual progress.
+FILE is the path where the plan should be saved."
+  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
+         (cumulative-actual (apply '+ (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
+         (total-words (org-scribe-plan-total-words plan))
+         (remaining-words (- total-words cumulative-actual))
+         (today (format-time-string "%Y-%m-%d"))
+         (end-date (org-scribe-plan-end-date plan))
+         (schedule (org-scribe-planner--generate-day-schedule plan))
+         (remaining-days 0))
+
+    ;; Count remaining working days (days without actual word counts, excluding spare days)
+    (dolist (day schedule)
+      (let* ((date (plist-get day :date))
+             (is-spare (plist-get day :is-spare-day))
+             (has-actual (assoc date daily-counts)))
+        (when (and (not has-actual)  ; Only count days without actual word counts
+                  (not is-spare))     ; Don't count spare days
           (setq remaining-days (1+ remaining-days)))))
 
     (message "Current progress: %d words written. Remaining: %d words (%d working days left)"
@@ -1129,21 +1274,48 @@ FILE is the path where the plan should be saved."
        ((string-match "Adjust daily word count" choice)
         ;; Keep end date, recalculate daily words to fit remaining work
         ;; Calculate new daily target based on remaining words and remaining days
-        (let ((new-daily-words (if (> remaining-days 0)
-                                  (ceiling (/ (float remaining-words) remaining-days))
-                                0)))
-          ;; Keep total-words unchanged (original objective)
-          ;; Keep daily-word-counts unchanged (user's history)
-          ;; Update current-words to reflect actual progress
+        (let* ((new-daily-words (if (> remaining-days 0)
+                                   (ceiling (/ (float remaining-words) remaining-days))
+                                 0))
+               ;; Calculate total working days in the plan (start to end, excluding spare days)
+               (total-working-days (- (org-scribe-plan-days plan)
+                                     (length (org-scribe-plan-spare-days plan))))
+               ;; Calculate new total to keep math consistent:
+               ;;   total = daily-words × total-working-days
+               ;; This is necessary because the schedule generator applies daily-words to ALL days
+               (new-total-words (* new-daily-words total-working-days)))
+          ;; Keep start-date unchanged (historical record)
+          ;; Keep end-date unchanged (user's choice)
+          ;; Keep days unchanged (original plan span)
+          ;; Keep spare-days unchanged (original configuration)
+          ;; Keep daily-word-counts unchanged (actual history)
+          ;; Update current-words to reflect cumulative actual progress
           (setf (org-scribe-plan-current-words plan) cumulative-actual)
+          ;; Update daily-words to new target for remaining working days
           (setf (org-scribe-plan-daily-words plan) new-daily-words)
-          (message "Recalculated: %d words remaining, new daily target is %d words (keeping end date %s)"
-                   remaining-words new-daily-words end-date)))))
+          ;; Update total-words to keep the math consistent in the schedule:
+          ;; The schedule generator applies daily-words to ALL working days,
+          ;; so total must equal daily-words × working-days for consistency
+          (setf (org-scribe-plan-total-words plan) new-total-words)
+          (message "Recalculated: %d words written, %d words remaining over %d working days. Adjusted goal to %d total words, new daily target: %d words (keeping end date %s)"
+                   cumulative-actual remaining-words remaining-days new-total-words new-daily-words end-date)))))
 
     ;; Save and display (save to the file location that was passed in)
     (org-scribe-planner--save-plan plan file)
     (org-scribe-planner-show-calendar plan file)
     (message "Plan recalculated and saved")))
+
+;;;###autoload
+(defun org-scribe-planner-adjust-remaining-plan ()
+  "Recalculate daily target for remaining days based on progress.
+This command keeps your end date and total word goal fixed, and adjusts
+only the daily target for remaining working days based on your actual
+cumulative progress so far."
+  (interactive)
+  (let ((file (org-scribe-planner--select-plan-file "Select plan file to adjust: ")))
+    (when file
+      (let ((plan (org-scribe-planner--load-plan file)))
+        (org-scribe-planner-recalculate-remaining-days plan file)))))
 
 ;;;###autoload
 (defun org-scribe-planner-recalculate ()
