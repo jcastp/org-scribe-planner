@@ -458,10 +458,10 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                     (make-directory save-dir t)
                     (org-scribe-planner--save-plan plan save-location))
                 ;; User declined to create directory
-                (error "Cannot save plan: directory does not exist"))))
+                (error "Cannot save plan: directory does not exist")))
 
-          ;; Display the plan
-          (org-scribe-planner-show-calendar plan save-location))
+            ;; Display the plan
+            (org-scribe-planner-show-calendar plan save-location)))
       (error
        (message "Error creating plan: %s" (error-message-string err))))))
 
