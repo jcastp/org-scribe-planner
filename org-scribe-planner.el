@@ -37,7 +37,7 @@
   :group 'org
   :prefix "org-scribe-planner-")
 
-(defcustom org-scribe-planner-directory (expand-file-name "writing-projects" org-directory)
+(defcustom org-scribe-planner-directory (expand-file-name "writing-projects/" org-directory)
   "Directory where writing project files are stored."
   :type 'directory
   :group 'org-scribe-planner)
@@ -269,7 +269,11 @@ Returns the selected file path."
                   nil
                   t
                   nil
-                  (lambda (name) (string-match-p "\\.org$" name))))
+		  ;; this allows now for path manipulation in the minibuffer
+		  (lambda (name)
+                    (or (file-directory-p name)
+			(string-match-p "\\.org$" name)))
+		  ))
 
 ;;; Input Validation Helpers
 
