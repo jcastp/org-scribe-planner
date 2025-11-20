@@ -72,13 +72,13 @@ Select plan: My Novel
 
 ## Essential Commands
 
-| Command | What It Does |
-|---------|--------------|
-| `org-scribe-planner-new-plan` | Create a new writing plan |
-| `org-scribe-planner-load-plan` | View an existing plan |
-| `org-scribe-planner-update-progress` | Update your word count |
-| `org-scribe-planner-recalculate` | Adjust plan when things change |
-| `org-scribe-planner-show-milestones` | See 25%, 50%, 75%, 100% dates |
+| Command                              | What It Does                   |
+|--------------------------------------|--------------------------------|
+| `org-scribe-planner-new-plan`        | Create a new writing plan      |
+| `org-scribe-planner-load-plan`       | View an existing plan          |
+| `org-scribe-planner-update-progress` | Update your word count         |
+| `org-scribe-planner-recalculate`     | Adjust plan when things change |
+| `org-scribe-planner-show-milestones` | See 25%, 50%, 75%, 100% dates  |
 
 ## Recommended Key Bindings
 
