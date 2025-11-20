@@ -1402,7 +1402,9 @@ cumulative progress so far."
 ;;; Milestone Tracking
 
 (defun org-scribe-planner--get-milestones (plan)
-  "Calculate milestone dates for PLAN (25%, 50%, 75%, 100%)."
+  "Calculate milestone dates for PLAN (25%, 50%, 75%, 100%).
+This is the old implementation, kept for backward compatibility.
+Use `org-scribe-planner--get-enhanced-milestones' for better tracking."
   (let* ((total (org-scribe-plan-total-words plan))
          (schedule (org-scribe-planner--generate-day-schedule plan))
          (milestones '((25 . nil) (50 . nil) (75 . nil) (100 . nil))))
@@ -1418,14 +1420,83 @@ cumulative progress so far."
 
     milestones))
 
+(defun org-scribe-planner--get-enhanced-milestones (plan)
+  "Calculate enhanced milestone information for PLAN.
+Returns a list of plists with :percent, :words, :reached, :date, and :expected.
+Tracks actual progress and calculates expected dates for unreached milestones."
+  (let* ((total-words (org-scribe-plan-total-words plan))
+         (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (schedule (org-scribe-planner--generate-day-schedule plan))
+         (milestone-percentages '(25 50 75 100))
+         (cumulative-actual 0)
+         (actual-by-date nil)
+         (results nil))
+
+    ;; Build cumulative actual progress by date
+    (dolist (day schedule)
+      (let* ((date (plist-get day :date))
+             (daily-entry (assoc date daily-counts)))
+        (when daily-entry
+          (let ((actual (org-scribe-planner--get-entry-words daily-entry)))
+            (setq cumulative-actual (+ cumulative-actual actual))
+            (push (cons date cumulative-actual) actual-by-date)))))
+
+    ;; Reverse to get chronological order
+    (setq actual-by-date (nreverse actual-by-date))
+
+    ;; Process each milestone
+    (dolist (percent milestone-percentages)
+      (let* ((milestone-words (/ (* percent total-words) 100))
+             (reached (>= cumulative-actual milestone-words))
+             (actual-date nil)
+             (expected-date nil))
+
+        (if reached
+            ;; Find date when milestone was reached
+            (progn
+              (dolist (entry actual-by-date)
+                (when (and (not actual-date)
+                          (>= (cdr entry) milestone-words))
+                  (setq actual-date (car entry)))))
+
+          ;; Calculate expected date for unreached milestone
+          (let ((remaining-words (- milestone-words cumulative-actual))
+                (projection-total cumulative-actual))
+
+            (dolist (day schedule)
+              (let* ((date (plist-get day :date))
+                     (is-spare (plist-get day :is-spare-day))
+                     (has-actual (assoc date daily-counts))
+                     (current-daily (plist-get day :words)))
+
+                ;; Project forward using days without actuals
+                (when (and (not has-actual)
+                          (not is-spare)
+                          (not expected-date))
+                  (setq projection-total (+ projection-total current-daily))
+
+                  (when (>= projection-total milestone-words)
+                    (setq expected-date date)))))))
+
+        ;; Add milestone to results
+        (push (list :percent percent
+                   :words milestone-words
+                   :reached reached
+                   :date actual-date
+                   :expected expected-date)
+              results)))
+
+    ;; Return in ascending order (25%, 50%, 75%, 100%)
+    (nreverse results)))
+
 ;;;###autoload
 (defun org-scribe-planner-show-milestones ()
-  "Show milestone dates for a writing plan."
+  "Show milestone dates for a writing plan with actual and expected dates."
   (interactive)
   (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
     (when file
       (let* ((plan (org-scribe-planner--load-plan file))
-             (milestones (org-scribe-planner--get-milestones plan))
+             (milestones (org-scribe-planner--get-enhanced-milestones plan))
              (buffer (get-buffer-create "*Writing Plan Milestones*")))
 
         (with-current-buffer buffer
@@ -1435,10 +1506,36 @@ cumulative progress so far."
                              'face 'org-level-1))
 
           (dolist (milestone milestones)
-            (insert (format "%3d%% - %s (%d words)\n"
-                           (car milestone)
-                           (or (cdr milestone) "Not reached")
-                           (/ (* (car milestone) (org-scribe-plan-total-words plan)) 100)))))
+            (let ((percent (plist-get milestone :percent))
+                  (words (plist-get milestone :words))
+                  (reached (plist-get milestone :reached))
+                  (date (plist-get milestone :date))
+                  (expected (plist-get milestone :expected)))
+
+              (cond
+               ;; Milestone reached - show actual date
+               (reached
+                (insert (propertize
+                        (format "%3d%% - %s (%d words) - Reached\n"
+                               percent
+                               (or date "Unknown date")
+                               words)
+                        'face 'org-done)))
+
+               ;; Milestone not reached with expected date
+               (expected
+                (insert (format "%3d%% - Not reached (%d words) - expected on %s\n"
+                               percent
+                               words
+                               expected)))
+
+               ;; Milestone not reached, no expected date (past end date or insufficient days)
+               (t
+                (insert (propertize
+                        (format "%3d%% - Not reached (%d words) - cannot be reached by end date\n"
+                               percent
+                               words)
+                        'face 'org-warning)))))))
 
         (display-buffer buffer)))))
 
