@@ -146,7 +146,8 @@ Updates PLAN in place and returns the calculated variable as a symbol."
 (defun org-scribe-planner--calculate-dates (plan)
   "Calculate start-date and end-date for PLAN based on days.
 If start-date is set, calculates end-date.
-If neither is set, uses today as start-date."
+If neither is set, uses today as start-date.
+If end-date is already set, skips calculating it."
   (with-slots (start-date end-date days spare-days) plan
     (unless days
       (error "Cannot calculate dates: days value is not set. Please ensure the plan has been properly calculated"))
@@ -156,11 +157,12 @@ If neither is set, uses today as start-date."
       (setf (org-scribe-plan-start-date plan)
             (format-time-string "%Y-%m-%d")))
 
-    ;; Calculate end-date
-    (let* ((start (org-scribe-planner--parse-date start-date))
-           (end (time-add start (days-to-time (1- days)))))
-      (setf (org-scribe-plan-end-date plan)
-            (format-time-string "%Y-%m-%d" end)))))
+    ;; Calculate end-date only if not already set
+    (unless end-date
+      (let* ((start (org-scribe-planner--parse-date start-date))
+             (end (time-add start (days-to-time (1- days)))))
+        (setf (org-scribe-plan-end-date plan)
+              (format-time-string "%Y-%m-%d" end))))))
 
 (defun org-scribe-planner--parse-date (date-string)
   "Parse DATE-STRING in YYYY-MM-DD format to Emacs time."
@@ -340,6 +342,36 @@ Ensures the number is greater than or equal to zero."
         (setq valid t)))
     number))
 
+(defun org-scribe-planner--read-days (prompt &optional default)
+  "Read number of days from user, either directly or by entering start/end dates.
+PROMPT is shown to the user when entering days as a number.
+Optional DEFAULT provides a default value when entering days directly.
+Returns either:
+  - An integer (when entering days directly)
+  - A plist with :days, :start-date, :end-date (when entering dates)"
+  (let ((method (completing-read
+                 "How do you want to enter the days? "
+                 '("Enter number of days"
+                   "Enter start and end dates")
+                 nil t)))
+    (cond
+     ((string-match-p "number of days" method)
+      (org-scribe-planner--read-positive-number prompt default))
+
+     ((string-match-p "start and end dates" method)
+      (let ((start-date (org-scribe-planner--read-date "Start date (YYYY-MM-DD)"))
+            (end-date (org-scribe-planner--read-date "End date (YYYY-MM-DD)")))
+        ;; Validate that end date is after or equal to start date
+        (let ((days (org-scribe-planner--days-between start-date end-date)))
+          (if (<= days 0)
+              (error "End date must be on or after start date. Start: %s, End: %s results in %d days"
+                     start-date end-date days)
+            (message "Calculated %d days from %s to %s" days start-date end-date)
+            (list :days days :start-date start-date :end-date end-date)))))
+
+     (t
+      (error "Invalid choice: %s" method)))))
+
 ;;; Schedule Generation
 
 (defun org-scribe-planner--generate-day-schedule (plan)
@@ -398,8 +430,15 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
        ((string-match-p "Calculate daily words" var-choice)
         (setf (org-scribe-plan-total-words plan)
               (org-scribe-planner--read-positive-number "Total words to write: "))
-        (setf (org-scribe-plan-days plan)
-              (org-scribe-planner--read-positive-number "Days available: ")))
+        (let ((days-result (org-scribe-planner--read-days "Days available: ")))
+          (if (listp days-result)
+              ;; User entered dates - extract days and set start/end dates
+              (progn
+                (setf (org-scribe-plan-days plan) (plist-get days-result :days))
+                (setf (org-scribe-plan-start-date plan) (plist-get days-result :start-date))
+                (setf (org-scribe-plan-end-date plan) (plist-get days-result :end-date)))
+            ;; User entered a number - just set days
+            (setf (org-scribe-plan-days plan) days-result))))
 
        ;; Total words + Daily words → Calculate days needed
        ((string-match-p "Calculate days needed" var-choice)
@@ -412,17 +451,25 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
        ((string-match-p "Calculate total words" var-choice)
         (setf (org-scribe-plan-daily-words plan)
               (org-scribe-planner--read-positive-number "Words per day you can write: "))
-        (setf (org-scribe-plan-days plan)
-              (org-scribe-planner--read-positive-number "Days available: ")))
+        (let ((days-result (org-scribe-planner--read-days "Days available: ")))
+          (if (listp days-result)
+              ;; User entered dates - extract days and set start/end dates
+              (progn
+                (setf (org-scribe-plan-days plan) (plist-get days-result :days))
+                (setf (org-scribe-plan-start-date plan) (plist-get days-result :start-date))
+                (setf (org-scribe-plan-end-date plan) (plist-get days-result :end-date)))
+            ;; User entered a number - just set days
+            (setf (org-scribe-plan-days plan) days-result))))
 
        ;; Fallback if nothing matched (shouldn't happen, but just in case)
        (t
         (error "Invalid choice: %s" var-choice))))
 
-    ;; Ask about start date and set immediately (default to today)
-    (setf (org-scribe-plan-start-date plan)
-          (org-scribe-planner--read-date "Start date (YYYY-MM-DD)"
-                                        (format-time-string "%Y-%m-%d")))
+    ;; Ask about start date only if not already set (from date entry method)
+    (unless (org-scribe-plan-start-date plan)
+      (setf (org-scribe-plan-start-date plan)
+            (org-scribe-planner--read-date "Start date (YYYY-MM-DD)"
+                                          (format-time-string "%Y-%m-%d"))))
 
     ;; Calculate missing variable and dates FIRST (before asking about spare days)
     (condition-case err
@@ -1503,9 +1550,16 @@ cumulative progress so far."
               (org-scribe-planner--calculate-dates plan)))
 
            ((string-match "Days available" choice)
-            (let ((new-days (org-scribe-planner--read-positive-number "New days available: "
+            (let ((days-result (org-scribe-planner--read-days "New days available: "
                                         (org-scribe-plan-days plan))))
-              (setf (org-scribe-plan-days plan) new-days)
+              (if (listp days-result)
+                  ;; User entered dates - extract days and set start/end dates
+                  (progn
+                    (setf (org-scribe-plan-days plan) (plist-get days-result :days))
+                    (setf (org-scribe-plan-start-date plan) (plist-get days-result :start-date))
+                    (setf (org-scribe-plan-end-date plan) (plist-get days-result :end-date)))
+                ;; User entered a number - just set days
+                (setf (org-scribe-plan-days plan) days-result))
               (setf (org-scribe-plan-daily-words plan) nil)
               (org-scribe-planner--calculate-missing-variable plan)
               (org-scribe-planner--calculate-dates plan)))
