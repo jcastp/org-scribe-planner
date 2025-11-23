@@ -622,6 +622,36 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
 
 ;;; Org-mode Integration
 
+(defun org-scribe-planner--parse-schedule-table ()
+  "Parse the Schedule table in the current buffer and extract notes.
+Returns an alist of (date . note) pairs for entries with notes."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((notes-alist nil))
+      ;; Find the Schedule heading
+      (when (re-search-forward "^\\*\\* Schedule" nil t)
+        ;; Find the table start
+        (when (re-search-forward "^|.*Date.*Target.*Notes.*|" nil t)
+          ;; Skip the separator line (|------+-----+....|)
+          (forward-line 1)
+          ;; Now we should be at the first data row - skip separator
+          (when (looking-at "^|[-+]+|")
+            (forward-line 1))
+          ;; Parse table rows
+          (while (looking-at "^|[[:space:]]+\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\)[[:space:]]+|[^|]*|[^|]*|[^|]*|[^|]*|[[:space:]]*\\([^|]+?\\)[[:space:]]*|")
+            (let* ((date (match-string 1))
+                   (note-raw (match-string 2))
+                   ;; Trim whitespace from note
+                   (note (string-trim note-raw)))
+              ;; Only add if note is not empty and not just "Spare day"
+              (when (and note
+                        (not (string-empty-p note))
+                        (not (string= note "Spare day")))
+                (push (cons date note) notes-alist)))
+            (forward-line 1))))
+      ;; Return in chronological order
+      (nreverse notes-alist))))
+
 (defun org-scribe-planner--buffer-safe-to-erase-p (buffer filepath)
   "Check if BUFFER at FILEPATH is safe to erase completely.
 Returns t if safe to erase, nil if caution is needed.
@@ -862,6 +892,65 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 
       (setf (org-scribe-plan-org-heading-marker plan)
             (point-marker))
+
+      ;; Parse the Schedule table to extract manually added notes
+      (let ((table-notes (org-scribe-planner--parse-schedule-table))
+            (notes-updated nil))
+        (when table-notes
+          ;; Merge table notes into daily-word-counts
+          ;; Table notes take precedence over property notes
+          (dolist (table-entry table-notes)
+            (let* ((date (car table-entry))
+                   (note (cdr table-entry))
+                   (existing-entry (assoc date (org-scribe-plan-daily-word-counts plan))))
+              (if existing-entry
+                  ;; Update existing entry with note from table
+                  (let* ((data (cdr existing-entry))
+                         (old-note (if (listp data)
+                                      (or (plist-get data :note) "")
+                                    (if (consp data) (or (cdr data) "") ""))))
+                    ;; Only update if note actually changed
+                    (unless (string= old-note note)
+                      (setq notes-updated t)
+                      (if (listp data)
+                          ;; New format - update the :note field
+                          (plist-put data :note note)
+                        ;; Old format - convert to new format
+                        (setcdr existing-entry (list :words (if (consp data) (car data) data)
+                                                    :note note)))))
+                ;; No existing entry - create one with just the note
+                (setq notes-updated t)
+                (push (cons date (list :words 0 :note note))
+                      (org-scribe-plan-daily-word-counts plan)))))
+
+          ;; If we updated any notes, persist them to the properties
+          (when notes-updated
+            (org-set-property "DAILY_WORD_COUNTS"
+                             (mapconcat (lambda (entry)
+                                         (let* ((date (car entry))
+                                                (data (cdr entry))
+                                                (word-count (if (listp data)
+                                                              (or (plist-get data :words) (car data))
+                                                              data))
+                                                (note (if (listp data)
+                                                         (or (plist-get data :note) (cdr data))
+                                                       ""))
+                                                (target (when (listp data) (plist-get data :target))))
+                                           (cond
+                                            (target
+                                             (if (and note (not (string-empty-p note)))
+                                                 (format "%s:%d:%s:%d" date word-count note target)
+                                               (format "%s:%d::%d" date word-count target)))
+                                            ((and note (not (string-empty-p note)))
+                                             (format "%s:%d:%s" date word-count note))
+                                            (t
+                                             (format "%s:%d" date word-count)))))
+                                       (org-scribe-plan-daily-word-counts plan)
+                                       ","))
+            (save-buffer)
+            (message "Merged %d note(s) from schedule table into plan properties"
+                     (length table-notes)))))
+
       plan)))
 
 ;;;###autoload
