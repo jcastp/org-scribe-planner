@@ -580,6 +580,10 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
           (let ((date (org-scribe-planner--read-date "Enter date (YYYY-MM-DD)" nil t)))
             (when date
               (push date spare-days)
+              (let ((note (read-string (format "Note for %s (leave empty for default): " date))))
+                (when (and note (not (string-empty-p (string-trim note))))
+                  ;; Add entry to daily-word-counts with note
+                  (org-scribe-planner--add-spare-day-note plan date note)))
               (message "Added %s as spare day" date))))
 
          ((equal method "Add: Date range")
@@ -587,24 +591,41 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
                 (end (when start
                        (org-scribe-planner--read-date "End date (YYYY-MM-DD)" nil t))))
             (when (and start end)
-              (setq spare-days (append spare-days
-                                      (org-scribe-planner--generate-date-range start end)))
-              (message "Added dates from %s to %s" start end))))
+              (let ((date-range (org-scribe-planner--generate-date-range start end)))
+                (setq spare-days (append spare-days date-range))
+                ;; Ask if user wants to add a note for all dates in range
+                (let ((note (read-string (format "Note for all dates in range (leave empty for default): "))))
+                  (when (and note (not (string-empty-p (string-trim note))))
+                    (dolist (date date-range)
+                      (org-scribe-planner--add-spare-day-note plan date note))))
+                (message "Added dates from %s to %s" start end)))))
 
          ((equal method "Add: All weekends")
-          (setq spare-days (append spare-days
-                                  (org-scribe-planner--get-weekends plan)))
-          (message "Added all weekends"))
+          (let ((weekend-dates (org-scribe-planner--get-weekends plan)))
+            (setq spare-days (append spare-days weekend-dates))
+            (let ((note (read-string "Note for all weekends (leave empty for default): ")))
+              (when (and note (not (string-empty-p (string-trim note))))
+                (dolist (date weekend-dates)
+                  (org-scribe-planner--add-spare-day-note plan date note))))
+            (message "Added all weekends")))
 
          ((equal method "Add: All Saturdays")
-          (setq spare-days (append spare-days
-                                  (org-scribe-planner--get-day-of-week plan 6)))
-          (message "Added all Saturdays"))
+          (let ((saturday-dates (org-scribe-planner--get-day-of-week plan 6)))
+            (setq spare-days (append spare-days saturday-dates))
+            (let ((note (read-string "Note for all Saturdays (leave empty for default): ")))
+              (when (and note (not (string-empty-p (string-trim note))))
+                (dolist (date saturday-dates)
+                  (org-scribe-planner--add-spare-day-note plan date note))))
+            (message "Added all Saturdays")))
 
          ((equal method "Add: All Sundays")
-          (setq spare-days (append spare-days
-                                  (org-scribe-planner--get-day-of-week plan 0)))
-          (message "Added all Sundays"))
+          (let ((sunday-dates (org-scribe-planner--get-day-of-week plan 0)))
+            (setq spare-days (append spare-days sunday-dates))
+            (let ((note (read-string "Note for all Sundays (leave empty for default): ")))
+              (when (and note (not (string-empty-p (string-trim note))))
+                (dolist (date sunday-dates)
+                  (org-scribe-planner--add-spare-day-note plan date note))))
+            (message "Added all Sundays")))
 
          ((equal method "Remove: Specific date")
           (if (null spare-days)
@@ -797,26 +818,32 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
           (org-set-property "SPARE_DAYS" (mapconcat 'identity (org-scribe-plan-spare-days plan) ",")))
 
         (when (org-scribe-plan-daily-word-counts plan)
-          (org-set-property "DAILY_WORD_COUNTS"
-                           (mapconcat (lambda (entry)
-                                       (let* ((date (car entry))
-                                              (data (cdr entry))
-                                              (word-count (plist-get data :words))
-                                              (note (or (plist-get data :note) ""))
-                                              (target (plist-get data :target)))
-                                         (cond
-                                          ;; Format with target
-                                          (target
-                                           (if (and note (not (string-empty-p note)))
-                                               (format "%s:%d:%s:%d" date word-count note target)
-                                             (format "%s:%d::%d" date word-count target)))
-                                          ;; Format without target
-                                          ((and note (not (string-empty-p note)))
-                                           (format "%s:%d:%s" date word-count note))
-                                          (t
-                                           (format "%s:%d" date word-count)))))
-                                     (org-scribe-plan-daily-word-counts plan)
-                                     ",")))
+          (let ((entries-with-words
+                 (cl-remove-if-not
+                  (lambda (entry)
+                    (numberp (plist-get (cdr entry) :words)))
+                  (org-scribe-plan-daily-word-counts plan))))
+            (when entries-with-words
+              (org-set-property "DAILY_WORD_COUNTS"
+                               (mapconcat (lambda (entry)
+                                           (let* ((date (car entry))
+                                                  (data (cdr entry))
+                                                  (word-count (plist-get data :words))
+                                                  (note (or (plist-get data :note) ""))
+                                                  (target (plist-get data :target)))
+                                             (cond
+                                              ;; Format with target
+                                              (target
+                                               (if (and note (not (string-empty-p note)))
+                                                   (format "%s:%d:%s:%d" date word-count note target)
+                                                 (format "%s:%d::%d" date word-count target)))
+                                              ;; Format without target
+                                              ((and note (not (string-empty-p note)))
+                                               (format "%s:%d:%s" date word-count note))
+                                              (t
+                                               (format "%s:%d" date word-count)))))
+                                         entries-with-words
+                                         ",")))))
 
         ;; Add schedule as content
         (goto-char (point-max))
@@ -861,8 +888,11 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                              (if actual (number-to-string actual) "")
                              percentage
                              (cond
-                              (is-spare "Spare day")
+                              ;; If there's a custom note (even for spare days), show it
                               ((and note (not (string-empty-p note))) note)
+                              ;; Otherwise, if it's a spare day, show default message
+                              (is-spare "Spare day")
+                              ;; No note and not spare day
                               (t "")))))))
 
         (org-table-align)
@@ -1125,8 +1155,11 @@ Optional FILEPATH shows the location of the plan file."
                                           (format "%d words %s" actual percentage)
                                         ""))
                      (note-col (cond
-                                (is-spare "(spare day)")
+                                ;; If there's a custom note (even for spare days), show it
                                 ((and note (not (string-empty-p note))) note)
+                                ;; Otherwise, if it's a spare day, show default message
+                                (is-spare "(spare day)")
+                                ;; No note and not spare day
                                 (t ""))))
                 (insert (propertize
                         (format "  %-25s  %-13s  %-15s  %-15s  %-23s  %s\n"
@@ -1263,6 +1296,26 @@ ENTRY must be in new format: (date . (:words N :note \"...\" :target M)).
 Returns nil if no target is stored."
   (plist-get (cdr entry) :target))
 
+(defun org-scribe-planner--add-spare-day-note (plan date note)
+  "Add or update a note for a spare day in PLAN.
+DATE should be in YYYY-MM-DD format.
+NOTE is the text to associate with this spare day.
+Creates an entry in daily-word-counts with only the note (no word count).
+This allows tracking notes for spare days without affecting cumulative word counts."
+  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
+         (existing-entry (assoc date daily-counts)))
+    (if existing-entry
+        ;; Update existing entry to add/replace note (preserve :words if it exists)
+        (let ((existing-words (plist-get (cdr existing-entry) :words)))
+          ;; Only preserve :words if it was explicitly set (not for note-only entries)
+          (if (numberp existing-words)
+              (setcdr existing-entry (list :words existing-words :note note))
+            ;; Note-only entry, don't set :words
+            (setcdr existing-entry (list :note note))))
+      ;; Create new note-only entry for spare day (no :words field)
+      (push (cons date (list :note note))
+            (org-scribe-plan-daily-word-counts plan)))))
+
 ;;; Plan Modification and Recalculation
 
 ;;;###autoload
@@ -1364,7 +1417,7 @@ PLAN is the writing plan to recalculate.
 FILE is the path where the plan should be saved."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
          (cumulative-actual (if daily-counts
-                               (apply '+ (mapcar #'org-scribe-planner--get-entry-words daily-counts))
+                               (apply '+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
                              0))
          (total-words (org-scribe-plan-total-words plan))
          (remaining-words (- total-words cumulative-actual))
@@ -1414,7 +1467,9 @@ FILE is the path where the plan should be saved."
   "Recalculate PLAN based on cumulative actual progress.
 FILE is the path where the plan should be saved."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
-         (cumulative-actual (apply '+ (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
+         (cumulative-actual (if daily-counts
+                               (apply '+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
+                             0))
          (total-words (org-scribe-plan-total-words plan))
          (remaining-words (- total-words cumulative-actual))
          (today (format-time-string "%Y-%m-%d"))
@@ -1639,8 +1694,10 @@ Tracks actual progress and calculates expected dates for unreached milestones."
              (daily-entry (assoc date daily-counts)))
         (when daily-entry
           (let ((actual (org-scribe-planner--get-entry-words daily-entry)))
-            (setq cumulative-actual (+ cumulative-actual actual))
-            (push (cons date cumulative-actual) actual-by-date)))))
+            ;; Only count entries with actual word counts (not note-only entries)
+            (when (numberp actual)
+              (setq cumulative-actual (+ cumulative-actual actual))
+              (push (cons date cumulative-actual) actual-by-date))))))
 
     ;; Reverse to get chronological order
     (setq actual-by-date (nreverse actual-by-date))
