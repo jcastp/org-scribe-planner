@@ -406,7 +406,9 @@ Returns plist with :status :days-ahead :words-ahead."
      ((string= buffer-name "*Writing Dashboard*")
       (org-scribe-planner-show-progress-dashboard))
      ((string= buffer-name "*Burndown Chart*")
-      (org-scribe-planner-show-burndown))
+      (org-scribe-planner-show-burndown-ascii))
+     ((string= buffer-name "*Burndown Chart (Gnuplot)*")
+      (org-scribe-planner-show-burndown-gnuplot))
      ((string= buffer-name "*Velocity Statistics*")
       (org-scribe-planner-show-velocity))
      ((string= buffer-name "*Writing Heatmap*")
@@ -476,10 +478,8 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
     ;; Draw X-axis
     (insert "└" (make-string width ?─) "┘\n")))
 
-;;;###autoload
-(defun org-scribe-planner-show-burndown ()
-  "Display ASCII burndown chart for the active plan."
-  (interactive)
+(defun org-scribe-planner-show-burndown-ascii-internal ()
+  "Display ASCII burndown chart for the active plan (internal function)."
   (let ((current (org-scribe-planner--get-current-plan t)))
     (when current
       (let* ((plan (car current))
@@ -550,6 +550,147 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
           (goto-char (point-min))
           (org-scribe-planner-dashboard-mode)
           (display-buffer (current-buffer)))))))
+
+;;;###autoload
+(defun org-scribe-planner-show-burndown (&optional force-ascii)
+  "Display burndown chart for the active plan.
+Prefers gnuplot version if available, falls back to ASCII.
+With prefix argument FORCE-ASCII, always use ASCII version."
+  (interactive "P")
+  (if (and (not force-ascii)
+           (executable-find "gnuplot")
+           (display-graphic-p))
+      (org-scribe-planner-show-burndown-gnuplot)
+    (org-scribe-planner-show-burndown-ascii-internal)))
+
+;;;###autoload
+(defun org-scribe-planner-show-burndown-ascii ()
+  "Display ASCII burndown chart (text-based)."
+  (interactive)
+  (org-scribe-planner-show-burndown-ascii-internal))
+
+;;; Gnuplot Burndown Chart
+
+(defun org-scribe-planner--gnuplot-available-p ()
+  "Check if gnuplot is available on the system."
+  (executable-find "gnuplot"))
+
+(defun org-scribe-planner--generate-gnuplot-burndown (plan filepath)
+  "Generate gnuplot burndown chart for PLAN, save to FILEPATH.
+Returns t if successful, nil otherwise."
+  (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
+         (total (org-scribe-plan-total-words plan))
+         (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (data-file (make-temp-file "org-scribe-burndown" nil ".dat"))
+         (script-file (make-temp-file "org-scribe-burndown" nil ".gp")))
+
+    (condition-case err
+        (progn
+          ;; Write data file for gnuplot
+          (with-temp-file data-file
+            (insert "# Date Ideal-Remaining Actual-Remaining\n")
+            (let ((cumulative-actual 0))
+              (dolist (day schedule)
+                (let* ((date (plist-get day :date))
+                       (cumulative-planned (plist-get day :cumulative))
+                       (ideal-remaining (- total cumulative-planned))
+                       (entry (assoc date daily-counts))
+                       (actual-words (when entry
+                                      (org-scribe-planner--get-entry-words entry))))
+
+                  (when (numberp actual-words)
+                    (setq cumulative-actual (+ cumulative-actual actual-words)))
+
+                  (insert (format "%s %d %d\n"
+                                date
+                                ideal-remaining
+                                (- total cumulative-actual)))))))
+
+          ;; Write gnuplot script
+          (with-temp-file script-file
+            (insert (format "
+set terminal png size 1000,600 enhanced font 'Arial,12'
+set output '%s'
+set title 'Burndown Chart: %s' font 'Arial,16'
+set xlabel 'Date' font 'Arial,12'
+set ylabel 'Words Remaining' font 'Arial,12'
+set xdata time
+set timefmt '%%Y-%%m-%%d'
+set format x '%%m/%%d'
+set grid ytics xtics
+set key left top box
+set style line 1 lc rgb '#2E7D32' lt 1 lw 2
+set style line 2 lc rgb '#1976D2' lt 1 lw 3
+set style line 3 lc rgb '#E0E0E0' lt 2 lw 1
+set border lw 1.5
+
+plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
+     '' using 1:3 with lines ls 2 title 'Actual Progress'
+"
+                           filepath
+                           (org-scribe-plan-title plan)
+                           data-file)))
+
+          ;; Execute gnuplot
+          (let ((result (call-process "gnuplot" nil nil nil script-file)))
+            (when (= result 0)
+              ;; Clean up temp files
+              (delete-file data-file)
+              (delete-file script-file)
+              (file-exists-p filepath))))
+
+      (error
+       (message "Error generating gnuplot chart: %s" (error-message-string err))
+       nil))))
+
+;;;###autoload
+(defun org-scribe-planner-show-burndown-gnuplot ()
+  "Display burndown chart using gnuplot (high quality)."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (output-file (make-temp-file "org-scribe-burndown" nil ".png")))
+
+        (if (org-scribe-planner--gnuplot-available-p)
+            (if (org-scribe-planner--generate-gnuplot-burndown plan output-file)
+                (progn
+                  ;; Display image in buffer
+                  (with-current-buffer (get-buffer-create "*Burndown Chart (Gnuplot)*")
+                    (let ((inhibit-read-only t))
+                      (erase-buffer)
+                      (insert (propertize "BURNDOWN CHART (GNUPLOT)\n"
+                                        'face '(:weight bold :height 1.2)))
+                      (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                                        'face 'org-level-1))
+                      (insert (make-string 75 ?═) "\n\n")
+
+                      (when (display-graphic-p)
+                        (insert-image (create-image output-file)))
+
+                      (insert "\n\n")
+                      (insert (propertize "Chart saved to: " 'face 'org-level-2))
+                      (insert (format "%s\n\n" output-file))
+
+                      (insert (propertize "Interpretation:\n" 'face 'org-level-2))
+                      (insert "  • Green line = Ideal burndown (linear decline)\n")
+                      (insert "  • Blue line = Actual progress\n")
+                      (insert "  • Actual below ideal = Ahead of schedule ✓\n")
+                      (insert "  • Actual above ideal = Behind schedule ⚠\n")
+                      (insert "  • Lines converging = Catching up\n")
+                      (insert "  • Lines diverging = Falling further behind\n\n")
+
+                      (insert (make-string 75 ?═) "\n")
+                      (insert (propertize "Press 'q' to close | 'r' to refresh | 's' to save\n"
+                                        'face 'shadow)))
+
+                    (goto-char (point-min))
+                    (org-scribe-planner-dashboard-mode)
+                    (display-buffer (current-buffer))))
+              (message "Failed to generate gnuplot chart, falling back to ASCII")
+              (org-scribe-planner-show-burndown-ascii))
+          (message "Gnuplot not found, falling back to ASCII version")
+          (org-scribe-planner-show-burndown-ascii))))))
 
 ;;; Velocity Statistics Display
 

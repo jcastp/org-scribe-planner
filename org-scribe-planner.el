@@ -35,6 +35,10 @@
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-burndown
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-burndown-gnuplot
+                  "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-burndown-ascii
+                  "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-velocity
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-heatmap
