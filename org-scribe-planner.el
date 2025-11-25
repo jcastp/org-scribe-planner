@@ -30,6 +30,10 @@
 (require 'calendar)
 (require 'cl-lib)
 
+;; Dashboard functions will be loaded at the end of this file
+(declare-function org-scribe-planner-show-progress-dashboard
+                  "org-scribe-planner-dashboards")
+
 ;;; Customization
 
 (defgroup org-scribe-planner nil
@@ -1050,7 +1054,7 @@ Optional FILEPATH shows the location of the plan file."
           (insert (propertize "[ACTIVE PLAN]\n" 'face 'org-done)))
         (insert (make-string 80 ?=) "\n")
         (insert "Commands:\n")
-        (insert "  [q] quit  [d] daily word count  [u] update progress\n")
+        (insert "  [q] quit  [d] daily word count  [u] update progress  [D] dashboard\n")
         (insert "  [r] recalculate plan  [a] adjust remaining days (keep end date fixed)\n")
 	(insert (make-string 80 ?=) "\n\n")
 
@@ -1187,7 +1191,7 @@ Optional FILEPATH shows the location of the plan file."
 
         (insert "\n" (make-string 80 ?=) "\n")
         (insert "\nCommands:\n")
-        (insert "  [q] quit  [d] daily word count  [u] update progress\n")
+        (insert "  [q] quit  [d] daily word count  [u] update progress  [D] dashboard\n")
         (insert "  [r] recalculate plan  [a] adjust remaining days (keep end date fixed)\n"))
 
       (goto-char (point-min))
@@ -1202,6 +1206,7 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "u") #'org-scribe-planner-update-progress)
 (define-key org-scribe-planner-calendar-mode-map (kbd "d") #'org-scribe-planner-update-daily-word-count)
 (define-key org-scribe-planner-calendar-mode-map (kbd "a") #'org-scribe-planner-adjust-remaining-plan)
+(define-key org-scribe-planner-calendar-mode-map (kbd "D") #'org-scribe-planner-show-progress-dashboard)
 
 ;;; Org-agenda Integration
 
@@ -1822,6 +1827,16 @@ If no plan is active, prompt to load one."
                (org-scribe-plan-title org-scribe-planner--current-plan)
                org-scribe-planner--current-plan-file)
     (message "No active plan. Use `org-scribe-planner-load-plan' to load one.")))
+
+;;; Load Dashboard Extensions
+
+;; Ensure current directory is in load-path for dashboards
+(let ((current-dir (file-name-directory (or load-file-name buffer-file-name))))
+  (when current-dir
+    (add-to-list 'load-path current-dir)))
+
+;; Load dashboards if available (dashboards file should be in same directory)
+(require 'org-scribe-planner-dashboards nil t)
 
 ;;; Provide
 
