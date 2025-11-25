@@ -33,6 +33,8 @@
 ;; Dashboard functions will be loaded at the end of this file
 (declare-function org-scribe-planner-show-progress-dashboard
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-progress-dashboard-svg
+                  "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-burndown
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-burndown-gnuplot

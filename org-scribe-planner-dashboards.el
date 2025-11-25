@@ -406,6 +406,8 @@ Returns plist with :status :days-ahead :words-ahead."
     (cond
      ((string= buffer-name "*Writing Dashboard*")
       (org-scribe-planner-show-progress-dashboard))
+     ((string= buffer-name "*Writing Dashboard (SVG)*")
+      (org-scribe-planner-show-progress-dashboard-svg))
      ((string= buffer-name "*Burndown Chart*")
       (org-scribe-planner-show-burndown-ascii))
      ((string= buffer-name "*Burndown Chart (Gnuplot)*")
@@ -843,6 +845,297 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
               (message "Failed to generate cumulative progress chart"))
           (message "Gnuplot not available. Install gnuplot to use this feature."))))))
 
+;;; SVG Progress Indicators
+
+(defun org-scribe-planner--svg-available-p ()
+  "Check if SVG rendering is available."
+  (and (fboundp 'svg-create)
+       (display-graphic-p)))
+
+(defun org-scribe-planner--create-svg-progress-bar (percent width height)
+  "Create an SVG progress bar showing PERCENT completion.
+WIDTH and HEIGHT are dimensions in pixels."
+  (require 'svg)
+  (let* ((svg (svg-create width height))
+         (filled-width (* width (/ percent 100.0)))
+         (border-radius 4)
+         ;; Color based on completion
+         (fill-color (cond
+                     ((>= percent 100) "#4CAF50")  ; Green
+                     ((>= percent 75) "#2196F3")   ; Blue
+                     ((>= percent 50) "#FF9800")   ; Orange
+                     (t "#F44336"))))              ; Red
+
+    ;; Background (empty part)
+    (svg-rectangle svg 0 0 width height
+                   :fill "#E0E0E0"
+                   :rx border-radius
+                   :ry border-radius)
+
+    ;; Filled part (progress)
+    (when (> filled-width 0)
+      (svg-rectangle svg 0 0 filled-width height
+                     :fill fill-color
+                     :rx border-radius
+                     :ry border-radius))
+
+    ;; Border
+    (svg-rectangle svg 0 0 width height
+                   :fill "none"
+                   :stroke "#BDBDBD"
+                   :stroke-width 1
+                   :rx border-radius
+                   :ry border-radius)
+
+    ;; Text label (centered)
+    (svg-text svg (format "%.1f%%" percent)
+              :x (/ width 2)
+              :y (/ height 1.5)
+              :font-size 12
+              :font-family "Arial, sans-serif"
+              :font-weight "bold"
+              :fill (if (< percent 50) "#424242" "#FFFFFF")
+              :text-anchor "middle")
+
+    svg))
+
+(defun org-scribe-planner--create-svg-sparkline (values width height)
+  "Create an SVG sparkline from VALUES list.
+WIDTH and HEIGHT are dimensions in pixels."
+  (require 'svg)
+  (when (and values (> (length values) 1))
+    (let* ((svg (svg-create width height))
+           (min-val (apply 'min values))
+           (max-val (apply 'max values))
+           (range (- max-val min-val))
+           (step (/ (float width) (1- (length values))))
+           (points nil))
+
+      ;; Calculate points
+      (dotimes (i (length values))
+        (let* ((val (nth i values))
+               (x (* i step))
+               (y (if (= range 0)
+                     (/ height 2)
+                   (- height (* (/ (- val min-val) (float range)) height)))))
+          (push (cons x y) points)))
+
+      (setq points (nreverse points))
+
+      ;; Draw area fill
+      (let ((path-data (format "M 0,%d " height)))
+        (dolist (point points)
+          (setq path-data (concat path-data (format "L %.1f,%.1f " (car point) (cdr point)))))
+        (setq path-data (concat path-data (format "L %d,%d Z" width height)))
+        (svg-node svg 'path
+                  :d path-data
+                  :fill "#E3F2FD"
+                  :opacity 0.5))
+
+      ;; Draw line
+      (let ((path-data ""))
+        (dolist (point points)
+          (if (string-empty-p path-data)
+              (setq path-data (format "M %.1f,%.1f" (car point) (cdr point)))
+            (setq path-data (concat path-data (format " L %.1f,%.1f" (car point) (cdr point))))))
+        (svg-node svg 'path
+                  :d path-data
+                  :fill "none"
+                  :stroke "#2196F3"
+                  :stroke-width 2))
+
+      ;; Draw points
+      (dolist (point points)
+        (svg-circle svg (car point) (cdr point) 3
+                    :fill "#1976D2"
+                    :stroke "#FFFFFF"
+                    :stroke-width 1))
+
+      svg)))
+
+(defun org-scribe-planner--create-svg-milestone-badge (percent label width height)
+  "Create an SVG milestone badge showing PERCENT with LABEL.
+WIDTH and HEIGHT are dimensions in pixels."
+  (require 'svg)
+  (let* ((svg (svg-create width height))
+         (achieved (>= percent 100))
+         (badge-color (if achieved "#4CAF50" "#9E9E9E"))
+         (text-color (if achieved "#FFFFFF" "#757575")))
+
+    ;; Circle background
+    (svg-circle svg (/ width 2) (/ height 2) (/ (min width height) 2.2)
+                :fill badge-color
+                :stroke (if achieved "#388E3C" "#616161")
+                :stroke-width 2)
+
+    ;; Checkmark or percent
+    (if achieved
+        ;; Draw checkmark
+        (let ((cx (/ width 2))
+              (cy (/ height 2)))
+          (svg-node svg 'path
+                    :d (format "M %d,%d L %d,%d L %d,%d"
+                             (- cx 8) cy
+                             (- cx 2) (+ cy 8)
+                             (+ cx 10) (- cy 8))
+                    :fill "none"
+                    :stroke "#FFFFFF"
+                    :stroke-width 3
+                    :stroke-linecap "round"
+                    :stroke-linejoin "round"))
+      ;; Draw percent
+      (svg-text svg (format "%.0f%%" percent)
+                :x (/ width 2)
+                :y (+ (/ height 2) 5)
+                :font-size 16
+                :font-family "Arial, sans-serif"
+                :font-weight "bold"
+                :fill text-color
+                :text-anchor "middle"))
+
+    ;; Label below
+    (when label
+      (svg-text svg label
+                :x (/ width 2)
+                :y (- height 5)
+                :font-size 10
+                :font-family "Arial, sans-serif"
+                :fill "#424242"
+                :text-anchor "middle"))
+
+    svg))
+
+(defun org-scribe-planner--insert-svg-image (svg)
+  "Insert SVG as an image at point."
+  (when (org-scribe-planner--svg-available-p)
+    (insert-image (svg-image svg))))
+
+;;; Enhanced Progress Dashboard with SVG
+
+;;;###autoload
+(defun org-scribe-planner-show-progress-dashboard-svg ()
+  "Display enhanced progress dashboard with SVG indicators."
+  (interactive)
+  (if (not (org-scribe-planner--svg-available-p))
+      (progn
+        (message "SVG not available, showing standard dashboard")
+        (org-scribe-planner-show-progress-dashboard))
+
+    (let ((current (org-scribe-planner--get-current-plan t)))
+      (when current
+        (let* ((plan (car current))
+               (total (org-scribe-plan-total-words plan))
+               (daily-counts (org-scribe-plan-daily-word-counts plan))
+               (counts-with-words (cl-remove-if-not
+                                  (lambda (entry)
+                                    (numberp (org-scribe-planner--get-entry-words entry)))
+                                  daily-counts))
+               (current-words (if counts-with-words
+                                 (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                                                  counts-with-words))
+                               0))
+               (percent (if (> total 0)
+                          (/ (* 100.0 current-words) total)
+                        0))
+               (velocity (org-scribe-planner--calculate-velocity plan))
+               (streak (org-scribe-planner--calculate-current-streak plan))
+               (position (org-scribe-planner--calculate-schedule-position plan))
+               (today-target (org-scribe-planner--get-today-target plan))
+               (today-actual (org-scribe-planner--get-today-actual plan)))
+
+          (with-current-buffer (get-buffer-create "*Writing Dashboard (SVG)*")
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+
+              ;; Header
+              (insert (propertize "WRITING PROGRESS DASHBOARD\n"
+                                'face '(:weight bold :height 1.3)))
+              (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                                'face 'org-level-1))
+              (insert (make-string 70 ?═) "\n\n")
+
+              ;; Overall Progress with SVG Bar
+              (insert (propertize "📊 Overall Progress\n" 'face 'org-level-2))
+              (insert "  ")
+              (org-scribe-planner--insert-svg-image
+               (org-scribe-planner--create-svg-progress-bar percent 400 30))
+              (insert (format "\n  %s / %s words\n\n"
+                            (propertize (org-scribe-planner--format-number current-words)
+                                      'face 'org-done)
+                            (org-scribe-planner--format-number total)))
+
+              ;; Milestones with SVG Badges
+              (insert (propertize "🎯 Milestones\n" 'face 'org-level-2))
+              (insert "  ")
+              (dolist (milestone '(25 50 75 100))
+                (org-scribe-planner--insert-svg-image
+                 (org-scribe-planner--create-svg-milestone-badge
+                  (/ (* 100.0 percent) milestone)
+                  (format "%d%%" milestone)
+                  60 80))
+                (insert " "))
+              (insert "\n\n")
+
+              ;; Recent Velocity Sparkline
+              (when (> (length counts-with-words) 2)
+                (let* ((sorted-entries (sort (copy-sequence counts-with-words)
+                                            (lambda (a b) (string< (car a) (car b)))))
+                       (recent-entries (last sorted-entries (min 14 (length sorted-entries))))
+                       (word-counts (mapcar #'org-scribe-planner--get-entry-words recent-entries)))
+                  (insert (propertize "📈 Recent Velocity (Last 14 Days)\n" 'face 'org-level-2))
+                  (insert "  ")
+                  (org-scribe-planner--insert-svg-image
+                   (org-scribe-planner--create-svg-sparkline word-counts 400 60))
+                  (insert (format "\n  Average: %.0f words/day\n\n"
+                                (plist-get velocity :average)))))
+
+              ;; Today's Progress
+              (insert (propertize "📝 Today's Target\n" 'face 'org-level-2))
+              (if today-target
+                  (let ((today-percent (if (and (numberp today-actual) (> today-target 0))
+                                          (/ (* 100.0 today-actual) today-target)
+                                        0)))
+                    (insert "  ")
+                    (org-scribe-planner--insert-svg-image
+                     (org-scribe-planner--create-svg-progress-bar today-percent 400 25))
+                    (insert (format "\n  Target: %s | Actual: %s\n\n"
+                                  (org-scribe-planner--format-number today-target)
+                                  (if (numberp today-actual)
+                                      (org-scribe-planner--format-number today-actual)
+                                    "Not logged"))))
+                (insert (propertize "  No target for today\n\n" 'face 'shadow)))
+
+              ;; Status Summary (text)
+              (insert (propertize "📈 Schedule Status\n" 'face 'org-level-2))
+              (let* ((status (plist-get position :status))
+                     (words-ahead (plist-get position :words-ahead))
+                     (status-text (if (eq status 'ahead)
+                                     (propertize "AHEAD OF SCHEDULE"
+                                               'face 'org-done)
+                                   (propertize "BEHIND SCHEDULE"
+                                             'face 'org-warning)))
+                     (sign (if (>= words-ahead 0) "+" "")))
+                (insert (format "  Status: %s\n" status-text))
+                (insert (format "  Progress: %s%s words\n\n"
+                              sign
+                              (org-scribe-planner--format-number words-ahead))))
+
+              ;; Momentum
+              (insert (propertize "⚡ Momentum\n" 'face 'org-level-2))
+              (insert (format "  Current streak: %d days\n"
+                            (plist-get streak :current)))
+              (insert (format "  Trend: %s\n\n"
+                            (org-scribe-planner--format-trend
+                             (plist-get velocity :trend))))
+
+              (insert (make-string 70 ?═) "\n")
+              (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
+                                'face 'shadow)))
+
+            (goto-char (point-min))
+            (org-scribe-planner-dashboard-mode)
+            (display-buffer (current-buffer))))))))
+
 ;;; Velocity Statistics Display
 
 ;;;###autoload
@@ -1049,6 +1342,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
   (let ((choice (completing-read
                  "Select dashboard: "
                  '("Progress Dashboard"
+                   "Progress Dashboard (SVG)"
                    "Burndown Chart"
                    "Cumulative Progress"
                    "Velocity Statistics"
@@ -1057,6 +1351,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
                  nil t)))
     (pcase choice
       ("Progress Dashboard" (org-scribe-planner-show-progress-dashboard))
+      ("Progress Dashboard (SVG)" (org-scribe-planner-show-progress-dashboard-svg))
       ("Burndown Chart" (org-scribe-planner-show-burndown))
       ("Cumulative Progress" (org-scribe-planner-show-cumulative-progress))
       ("Velocity Statistics" (org-scribe-planner-show-velocity))
