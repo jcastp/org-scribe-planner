@@ -801,21 +801,16 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                            (mapconcat (lambda (entry)
                                        (let* ((date (car entry))
                                               (data (cdr entry))
-                                              ;; Handle both old format (word-count . note) and new format (plist)
-                                              (word-count (if (listp data)
-                                                            (or (plist-get data :words) (car data))
-                                                            data))
-                                              (note (if (listp data)
-                                                       (or (plist-get data :note) (cdr data))
-                                                     ""))
-                                              (target (when (listp data) (plist-get data :target))))
+                                              (word-count (plist-get data :words))
+                                              (note (or (plist-get data :note) ""))
+                                              (target (plist-get data :target)))
                                          (cond
-                                          ;; New format with target
+                                          ;; Format with target
                                           (target
                                            (if (and note (not (string-empty-p note)))
                                                (format "%s:%d:%s:%d" date word-count note target)
                                              (format "%s:%d::%d" date word-count target)))
-                                          ;; Old format or no target
+                                          ;; Format without target
                                           ((and note (not (string-empty-p note)))
                                            (format "%s:%d:%s" date word-count note))
                                           (t
@@ -837,18 +832,14 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                    (daily-entry (assoc date daily-counts))
                    (daily-data (when daily-entry (cdr daily-entry)))
                    ;; Use stored target if available, otherwise use current plan's daily-words
-                   (stored-target (when (and daily-data (listp daily-data))
+                   (stored-target (when daily-data
                                    (plist-get daily-data :target)))
                    (target (or stored-target (plist-get day :words)))
                    (is-spare (plist-get day :is-spare-day))
                    (actual (when daily-data
-                            (if (listp daily-data)
-                                (plist-get daily-data :words)
-                              (if (consp daily-data) (car daily-data) daily-data))))
+                            (plist-get daily-data :words)))
                    (note (when daily-data
-                          (if (listp daily-data)
-                              (plist-get daily-data :note)
-                            (if (consp daily-data) (cdr daily-data) ""))))
+                          (or (plist-get daily-data :note) "")))
                    (percentage (if (and actual (not is-spare) (> target 0))
                                   (format "%.1f%%" (* 100.0 (/ (float actual) target)))
                                 "")))
@@ -915,27 +906,30 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 
       (let ((daily-counts-str (org-entry-get nil "DAILY_WORD_COUNTS")))
         (when daily-counts-str
-          (setf (org-scribe-plan-daily-word-counts plan)
-                (mapcar (lambda (entry-str)
-                         (let* ((parts (split-string entry-str ":" nil " "))  ; Don't skip empty parts for :: syntax
-                                (date (nth 0 parts))
-                                (word-count (string-to-number (nth 1 parts)))
-                                (note-or-empty (nth 2 parts))
-                                (target-str (nth 3 parts))
-                                ;; If we have 4 parts, it's new format: date:words:note:target or date:words::target
-                                ;; If we have 3 parts, it's old format: date:words:note
-                                ;; If we have 2 parts, it's old format: date:words
-                                (has-target (and target-str (not (string-empty-p target-str))))
-                                (note (if (and note-or-empty (not (string-empty-p note-or-empty)))
-                                         note-or-empty
-                                       ""))
-                                (target (when has-target (string-to-number target-str))))
-                           (if has-target
-                               ;; New format with target
-                               (cons date (list :words word-count :note note :target target))
-                             ;; Old format - convert to new format (no target stored)
-                             (cons date (list :words word-count :note note)))))
-                       (split-string daily-counts-str "," t " ")))))
+          (let ((parsed-counts
+                 (mapcar (lambda (entry-str)
+                          (let* ((parts (split-string entry-str ":" nil " "))  ; Don't skip empty parts for :: syntax
+                                 (date (nth 0 parts))
+                                 (word-count (string-to-number (nth 1 parts)))
+                                 (note-or-empty (nth 2 parts))
+                                 (target-str (nth 3 parts))
+                                 ;; If we have 4 parts, it's new format: date:words:note:target or date:words::target
+                                 ;; If we have 3 parts, it's old format: date:words:note
+                                 ;; If we have 2 parts, it's old format: date:words
+                                 (has-target (and target-str (not (string-empty-p target-str))))
+                                 (note (if (and note-or-empty (not (string-empty-p note-or-empty)))
+                                          note-or-empty
+                                        ""))
+                                 (target (when has-target (string-to-number target-str))))
+                            (if has-target
+                                ;; New format with target
+                                (cons date (list :words word-count :note note :target target))
+                              ;; Old format - convert to new format (no target stored)
+                              (cons date (list :words word-count :note note)))))
+                        (split-string daily-counts-str "," t " "))))
+            ;; Migrate all entries to ensure consistent format
+            (setf (org-scribe-plan-daily-word-counts plan)
+                  (org-scribe-planner--migrate-daily-counts parsed-counts)))))
 
       (setf (org-scribe-plan-org-heading-marker plan)
             (point-marker))
@@ -953,21 +947,15 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
               (if existing-entry
                   ;; Update existing entry with note from table
                   (let* ((data (cdr existing-entry))
-                         (old-note (if (listp data)
-                                      (or (plist-get data :note) "")
-                                    (if (consp data) (or (cdr data) "") ""))))
+                         (old-note (or (plist-get data :note) "")))
                     ;; Only update if note actually changed
                     (unless (string= old-note note)
                       (setq notes-updated t)
-                      (if (listp data)
-                          ;; New format - update the :note field
-                          (plist-put data :note note)
-                        ;; Old format - convert to new format
-                        (setcdr existing-entry (list :words (if (consp data) (car data) data)
-                                                    :note note)))))
+                      ;; Update the :note field
+                      (plist-put data :note note)))
                 ;; No existing entry - create one with just the note
                 (setq notes-updated t)
-                (push (cons date (list :words 0 :note note))
+                (push (cons date (list :words 0 :note note :target nil))
                       (org-scribe-plan-daily-word-counts plan)))))
 
           ;; If we updated any notes, persist them to the properties
@@ -976,13 +964,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                              (mapconcat (lambda (entry)
                                          (let* ((date (car entry))
                                                 (data (cdr entry))
-                                                (word-count (if (listp data)
-                                                              (or (plist-get data :words) (car data))
-                                                              data))
-                                                (note (if (listp data)
-                                                         (or (plist-get data :note) (cdr data))
-                                                       ""))
-                                                (target (when (listp data) (plist-get data :target))))
+                                                (word-count (plist-get data :words))
+                                                (note (or (plist-get data :note) ""))
+                                                (target (plist-get data :target)))
                                            (cond
                                             (target
                                              (if (and note (not (string-empty-p note)))
@@ -1074,17 +1058,13 @@ Optional FILEPATH shows the location of the plan file."
                    (daily-entry (assoc date daily-counts))
                    (daily-data (when daily-entry (cdr daily-entry)))
                    ;; Use stored target for display if available, otherwise use current plan's daily-words
-                   (stored-target (when (and daily-data (listp daily-data))
+                   (stored-target (when daily-data
                                    (plist-get daily-data :target)))
                    (display-target (or stored-target current-daily-words))
                    (actual (when daily-data
-                            (if (listp daily-data)
-                                (plist-get daily-data :words)
-                              (if (consp daily-data) (car daily-data) daily-data))))
+                            (plist-get daily-data :words)))
                    (note (when daily-data
-                          (if (listp daily-data)
-                              (plist-get daily-data :note)
-                            (if (consp daily-data) (cdr daily-data) ""))))
+                          (or (plist-get daily-data :note) "")))
                    ;; Parse date to get day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
                    (date-parts (mapcar 'string-to-number (split-string date "-")))
                    (year (nth 0 date-parts))
@@ -1247,34 +1227,41 @@ Optional FILEPATH shows the location of the plan file."
 
 ;;; Helper Functions for Daily Word Counts
 
+(defun org-scribe-planner--migrate-daily-counts (daily-counts)
+  "Ensure all DAILY-COUNTS entries use the new plist format.
+Converts old format entries (date . (word-count . note)) or (date . word-count)
+to new format (date . (:words N :note \"...\" :target M)).
+Returns the migrated list."
+  (mapcar (lambda (entry)
+            (let ((date (car entry))
+                  (data (cdr entry)))
+              ;; Check if it's already new format (plist starting with keyword)
+              (if (and (listp data)
+                      (car-safe data)
+                      (keywordp (car data)))
+                  ;; Already new format - return as-is
+                  entry
+                ;; Convert old format to new format
+                (cons date (list :words (if (consp data) (car data) data)
+                                :note (if (consp data) (or (cdr data) "") "")
+                                :target nil)))))
+          daily-counts))
+
 (defun org-scribe-planner--get-entry-words (entry)
   "Extract word count from daily-word-count ENTRY.
-Handles both old format (date . (word-count . note)) and new format (date . plist)."
-  (let ((data (cdr entry)))
-    (if (and (listp data) (plist-member data :words))
-        (plist-get data :words)
-      ;; Old format fallback
-      (if (consp data)
-          (car data)
-        data))))
+ENTRY must be in new format: (date . (:words N :note \"...\" :target M))."
+  (plist-get (cdr entry) :words))
 
 (defun org-scribe-planner--get-entry-note (entry)
   "Extract note from daily-word-count ENTRY.
-Handles both old format (date . (word-count . note)) and new format (date . plist)."
-  (let ((data (cdr entry)))
-    (if (and (listp data) (plist-member data :note))
-        (plist-get data :note)
-      ;; Old format fallback
-      (if (consp data)
-          (or (cdr data) "")
-        ""))))
+ENTRY must be in new format: (date . (:words N :note \"...\" :target M))."
+  (or (plist-get (cdr entry) :note) ""))
 
 (defun org-scribe-planner--get-entry-target (entry)
   "Extract target from daily-word-count ENTRY.
-Returns nil if no target is stored (old format or not set)."
-  (let ((data (cdr entry)))
-    (when (and (listp data) (plist-member data :target))
-      (plist-get data :target))))
+ENTRY must be in new format: (date . (:words N :note \"...\" :target M)).
+Returns nil if no target is stored."
+  (plist-get (cdr entry) :target))
 
 ;;; Plan Modification and Recalculation
 
