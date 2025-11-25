@@ -394,14 +394,4 @@ This program is free software; you can redistribute it and/or modify it under th
 
 ## Acknowledgments
 
-Inspired by the excellent [pacemaker.press](https://pacemaker.press) by Linus Åkerlund.
-
-## Support
-
-For bugs, feature requests, or questions:
-- Open an issue on GitHub
-- Email: your-email@example.com
-
----
-
-Happy writing!
+Inspired by [pacemaker.press](https://pacemaker.press).
