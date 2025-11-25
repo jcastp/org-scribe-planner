@@ -1171,7 +1171,9 @@ Optional FILEPATH shows the location of the plan file."
                                note-col)
                         'face face)))
 
-              (setq week-words (+ week-words current-daily-words))
+              ;; Add actual words written to week total (not targets)
+              (when (numberp actual)
+                (setq week-words (+ week-words actual)))
 
               ;; Week summary (show at end of week or end of schedule)
               (let ((next-day (cadr (member day schedule))))
