@@ -391,6 +391,7 @@ Returns plist with :status :days-ahead :words-ahead."
     (define-key map (kbd "D") #'org-scribe-planner-dashboards-menu)
     (define-key map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
     (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
+    (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
     (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
     (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
     (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
@@ -409,6 +410,8 @@ Returns plist with :status :days-ahead :words-ahead."
       (org-scribe-planner-show-burndown-ascii))
      ((string= buffer-name "*Burndown Chart (Gnuplot)*")
       (org-scribe-planner-show-burndown-gnuplot))
+     ((string= buffer-name "*Cumulative Progress*")
+      (org-scribe-planner-show-cumulative-progress))
      ((string= buffer-name "*Velocity Statistics*")
       (org-scribe-planner-show-velocity))
      ((string= buffer-name "*Writing Heatmap*")
@@ -692,6 +695,154 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
           (message "Gnuplot not found, falling back to ASCII version")
           (org-scribe-planner-show-burndown-ascii))))))
 
+;;; Gnuplot Cumulative Progress Graph
+
+(defun org-scribe-planner--generate-gnuplot-cumulative (plan filepath)
+  "Generate gnuplot cumulative progress chart for PLAN, save to FILEPATH.
+Returns t if successful, nil otherwise."
+  (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
+         (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (data-file (make-temp-file "org-scribe-cumulative" nil ".dat"))
+         (script-file (make-temp-file "org-scribe-cumulative" nil ".gp"))
+         (today (org-scribe-planner--get-today-date)))
+
+    (condition-case err
+        (progn
+          ;; Write data file for gnuplot
+          (with-temp-file data-file
+            (insert "# Date Planned-Cumulative Actual-Cumulative\n")
+            (let ((cumulative-actual 0))
+              (dolist (day schedule)
+                (let* ((date (plist-get day :date))
+                       (cumulative-planned (plist-get day :cumulative))
+                       (entry (assoc date daily-counts))
+                       (actual-words (when entry
+                                      (org-scribe-planner--get-entry-words entry))))
+
+                  (when (numberp actual-words)
+                    (setq cumulative-actual (+ cumulative-actual actual-words)))
+
+                  ;; Write data point (use NA for actual if no data yet)
+                  (insert (format "%s %d %s\n"
+                                date
+                                cumulative-planned
+                                (if (> cumulative-actual 0)
+                                    (number-to-string cumulative-actual)
+                                  "?")))))))
+
+          ;; Write gnuplot script
+          (with-temp-file script-file
+            (insert (format "
+set terminal png size 1200,700 enhanced font 'Arial,12'
+set output '%s'
+set title 'Cumulative Progress: %s' font 'Arial,16'
+set xlabel 'Date' font 'Arial,12'
+set ylabel 'Total Words Written' font 'Arial,12'
+set xdata time
+set timefmt '%%Y-%%m-%%d'
+set format x '%%m/%%d'
+set grid ytics xtics
+set key left top box
+set style line 1 lc rgb '#2E7D32' lt 1 lw 2 dt 2
+set style line 2 lc rgb '#1976D2' lt 1 lw 3
+set style line 3 lc rgb '#D32F2F' lt 2 lw 1
+set border lw 1.5
+
+# Add a vertical line for today
+set arrow from '%s',graph 0 to '%s',graph 1 nohead lc rgb '#FF9800' lw 2 dt 3
+
+plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
+     '' using 1:3 with lines ls 2 title 'Actual Progress'
+"
+                           filepath
+                           (org-scribe-plan-title plan)
+                           today
+                           today
+                           data-file)))
+
+          ;; Execute gnuplot
+          (let ((result (call-process "gnuplot" nil nil nil script-file)))
+            (when (= result 0)
+              ;; Clean up temp files
+              (delete-file data-file)
+              (delete-file script-file)
+              (file-exists-p filepath))))
+
+      (error
+       (message "Error generating cumulative progress chart: %s" (error-message-string err))
+       nil))))
+
+;;;###autoload
+(defun org-scribe-planner-show-cumulative-progress ()
+  "Display cumulative progress chart using gnuplot."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (output-file (make-temp-file "org-scribe-cumulative" nil ".png")))
+
+        (if (org-scribe-planner--gnuplot-available-p)
+            (if (org-scribe-planner--generate-gnuplot-cumulative plan output-file)
+                (progn
+                  ;; Calculate current stats
+                  (let* ((position (org-scribe-planner--calculate-schedule-position plan))
+                         (cumulative-actual (plist-get position :cumulative-actual))
+                         (expected-by-today (plist-get position :expected-by-today))
+                         (words-ahead (plist-get position :words-ahead))
+                         (status (plist-get position :status)))
+
+                    ;; Display image in buffer
+                    (with-current-buffer (get-buffer-create "*Cumulative Progress*")
+                      (let ((inhibit-read-only t))
+                        (erase-buffer)
+                        (insert (propertize "CUMULATIVE PROGRESS CHART\n"
+                                          'face '(:weight bold :height 1.2)))
+                        (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                                          'face 'org-level-1))
+                        (insert (make-string 75 ?═) "\n\n")
+
+                        (when (display-graphic-p)
+                          (insert-image (create-image output-file)))
+
+                        (insert "\n\n")
+                        (insert (propertize "Current Status\n" 'face 'org-level-2))
+                        (insert (format "  Actual words written:   %s\n"
+                                      (org-scribe-planner--format-number cumulative-actual)))
+                        (insert (format "  Expected by today:      %s\n"
+                                      (org-scribe-planner--format-number expected-by-today)))
+                        (let ((status-text (if (eq status 'ahead)
+                                              (propertize "AHEAD OF SCHEDULE ✓"
+                                                        'face 'org-done)
+                                            (propertize "BEHIND SCHEDULE ⚠"
+                                                      'face 'org-warning)))
+                              (sign (if (>= words-ahead 0) "+" "")))
+                          (insert (format "  Status:                 %s (%s%s words)\n\n"
+                                        status-text
+                                        sign
+                                        (org-scribe-planner--format-number words-ahead))))
+
+                        (insert (propertize "Chart saved to: " 'face 'org-level-2))
+                        (insert (format "%s\n\n" output-file))
+
+                        (insert (propertize "Interpretation:\n" 'face 'org-level-2))
+                        (insert "  • Green dashed line = Planned cumulative progress\n")
+                        (insert "  • Blue solid line = Your actual cumulative progress\n")
+                        (insert "  • Orange vertical line = Today\n")
+                        (insert "  • Blue above green = Ahead of schedule ✓\n")
+                        (insert "  • Blue below green = Behind schedule ⚠\n")
+                        (insert "  • Gap widening = Building momentum\n")
+                        (insert "  • Gap narrowing = Losing momentum or catching up\n\n")
+
+                        (insert (make-string 75 ?═) "\n")
+                        (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
+                                          'face 'shadow)))
+
+                      (goto-char (point-min))
+                      (org-scribe-planner-dashboard-mode)
+                      (display-buffer (current-buffer)))))
+              (message "Failed to generate cumulative progress chart"))
+          (message "Gnuplot not available. Install gnuplot to use this feature."))))))
+
 ;;; Velocity Statistics Display
 
 ;;;###autoload
@@ -899,6 +1050,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
                  "Select dashboard: "
                  '("Progress Dashboard"
                    "Burndown Chart"
+                   "Cumulative Progress"
                    "Velocity Statistics"
                    "Consistency Heatmap"
                    "Show All Dashboards")
@@ -906,6 +1058,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
     (pcase choice
       ("Progress Dashboard" (org-scribe-planner-show-progress-dashboard))
       ("Burndown Chart" (org-scribe-planner-show-burndown))
+      ("Cumulative Progress" (org-scribe-planner-show-cumulative-progress))
       ("Velocity Statistics" (org-scribe-planner-show-velocity))
       ("Consistency Heatmap" (org-scribe-planner-show-heatmap))
       ("Show All Dashboards" (org-scribe-planner-show-all-dashboards)))))

@@ -39,6 +39,8 @@
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-burndown-ascii
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-cumulative-progress
+                  "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-velocity
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-heatmap
@@ -1068,7 +1070,8 @@ Optional FILEPATH shows the location of the plan file."
         (insert "Commands:\n")
         (insert "  [q] quit  [d] daily word count  [u] update progress\n")
         (insert "  [r] recalculate plan  [a] adjust remaining days\n")
-        (insert "  [D] dashboards menu  [p] progress  [b] burndown  [v] velocity  [h] heatmap\n")
+        (insert "  [D] dashboards menu  [p] progress  [b] burndown  [g] cumulative\n")
+        (insert "  [v] velocity  [h] heatmap\n")
 	(insert (make-string 80 ?=) "\n\n")
 
         ;; Summary
@@ -1206,7 +1209,8 @@ Optional FILEPATH shows the location of the plan file."
         (insert "\nCommands:\n")
         (insert "  [q] quit  [d] daily word count  [u] update progress\n")
         (insert "  [r] recalculate plan  [a] adjust remaining days\n")
-        (insert "  [D] dashboards menu  [p] progress  [b] burndown  [v] velocity  [h] heatmap\n"))
+        (insert "  [D] dashboards menu  [p] progress  [b] burndown  [g] cumulative\n")
+        (insert "  [v] velocity  [h] heatmap\n"))
 
       (goto-char (point-min))
       (display-buffer buffer))))
@@ -1223,6 +1227,7 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "D") #'org-scribe-planner-dashboards-menu)
 (define-key org-scribe-planner-calendar-mode-map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
 (define-key org-scribe-planner-calendar-mode-map (kbd "b") #'org-scribe-planner-show-burndown)
+(define-key org-scribe-planner-calendar-mode-map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
 (define-key org-scribe-planner-calendar-mode-map (kbd "v") #'org-scribe-planner-show-velocity)
 (define-key org-scribe-planner-calendar-mode-map (kbd "h") #'org-scribe-planner-show-heatmap)
 
