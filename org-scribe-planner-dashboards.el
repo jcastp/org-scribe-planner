@@ -386,11 +386,33 @@ Returns plist with :status :days-ahead :words-ahead."
 (defvar org-scribe-planner-dashboard-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "q") #'quit-window)
-    (define-key map (kbd "r") #'org-scribe-planner-show-progress-dashboard)
+    (define-key map (kbd "r") #'org-scribe-planner-dashboard-refresh)
     (define-key map (kbd "c") #'org-scribe-planner-show-current-plan)
+    (define-key map (kbd "D") #'org-scribe-planner-dashboards-menu)
+    (define-key map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
+    (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
+    (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
+    (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
+    (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
     (define-key map (kbd "?") #'describe-mode)
     map)
   "Keymap for `org-scribe-planner-dashboard-mode'.")
+
+(defun org-scribe-planner-dashboard-refresh ()
+  "Refresh the current dashboard based on buffer name."
+  (interactive)
+  (let ((buffer-name (buffer-name)))
+    (cond
+     ((string= buffer-name "*Writing Dashboard*")
+      (org-scribe-planner-show-progress-dashboard))
+     ((string= buffer-name "*Burndown Chart*")
+      (org-scribe-planner-show-burndown))
+     ((string= buffer-name "*Velocity Statistics*")
+      (org-scribe-planner-show-velocity))
+     ((string= buffer-name "*Writing Heatmap*")
+      (org-scribe-planner-show-heatmap))
+     (t
+      (message "Unknown dashboard type, use specific refresh command")))))
 
 (define-derived-mode org-scribe-planner-dashboard-mode special-mode "Writing-Dashboard"
   "Major mode for displaying writing progress dashboards.
@@ -398,6 +420,333 @@ Returns plist with :status :days-ahead :words-ahead."
 \\{org-scribe-planner-dashboard-mode-map}"
   (setq truncate-lines t
         buffer-read-only t))
+
+;;; Burndown Chart (ASCII)
+
+(defun org-scribe-planner--scale-to-height (value max-value height)
+  "Scale VALUE (0 to MAX-VALUE) to chart HEIGHT."
+  (if (and (> max-value 0) (> height 0))
+      (round (/ (* (- max-value value) height) (float max-value)))
+    0))
+
+(defun org-scribe-planner--replace-char-at (string pos char)
+  "Replace character at POS in STRING with CHAR."
+  (let ((chars (string-to-list string)))
+    (when (< pos (length chars))
+      (setf (nth pos chars) char))
+    (concat chars)))
+
+(defun org-scribe-planner--draw-ascii-burndown (data-points width height max-words)
+  "Draw ASCII burndown chart from DATA-POINTS.
+WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
+  (let ((canvas (make-vector height nil))
+        (points-count (length data-points)))
+
+    ;; Initialize canvas rows
+    (dotimes (i height)
+      (aset canvas i (make-string width ?\s)))
+
+    ;; Plot points
+    (dotimes (i points-count)
+      (when (< i width)
+        (let* ((point (nth i data-points))
+               (ideal (plist-get point :ideal))
+               (actual (plist-get point :actual))
+               (ideal-y (org-scribe-planner--scale-to-height ideal max-words height))
+               (actual-y (when actual
+                          (org-scribe-planner--scale-to-height actual max-words height))))
+
+          ;; Plot ideal point
+          (when (and (>= ideal-y 0) (< ideal-y height))
+            (aset canvas ideal-y
+                  (org-scribe-planner--replace-char-at
+                   (aref canvas ideal-y) i ?-)))
+
+          ;; Plot actual point (if exists)
+          (when (and actual-y (>= actual-y 0) (< actual-y height))
+            (aset canvas actual-y
+                  (org-scribe-planner--replace-char-at
+                   (aref canvas actual-y) i ?#))))))
+
+    ;; Render canvas (top to bottom = high to low values)
+    (dotimes (i height)
+      (let ((row (aref canvas (- height i 1))))
+        (insert "│" row "│\n")))
+
+    ;; Draw X-axis
+    (insert "└" (make-string width ?─) "┘\n")))
+
+;;;###autoload
+(defun org-scribe-planner-show-burndown ()
+  "Display ASCII burndown chart for the active plan."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (schedule (org-scribe-planner--generate-day-schedule plan))
+             (total (org-scribe-plan-total-words plan))
+             (daily-counts (org-scribe-plan-daily-word-counts plan))
+             (chart-width 70)
+             (chart-height 20)
+             (data-points nil))
+
+        ;; Build data points: (date ideal-remaining actual-remaining)
+        (let ((cumulative-actual 0))
+          (dolist (day schedule)
+            (let* ((date (plist-get day :date))
+                   (cumulative-planned (plist-get day :cumulative))
+                   (ideal-remaining (- total cumulative-planned))
+                   (entry (assoc date daily-counts))
+                   (actual-words (when entry
+                                  (org-scribe-planner--get-entry-words entry))))
+
+              (when (numberp actual-words)
+                (setq cumulative-actual (+ cumulative-actual actual-words)))
+
+              (push (list :date date
+                         :ideal ideal-remaining
+                         :actual (- total cumulative-actual))
+                    data-points))))
+
+        (setq data-points (nreverse data-points))
+
+        ;; Render chart
+        (with-current-buffer (get-buffer-create "*Burndown Chart*")
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize "BURNDOWN CHART\n"
+                              'face '(:weight bold :height 1.2)))
+            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                              'face 'org-level-1))
+            (insert (make-string 75 ?═) "\n\n")
+
+            ;; Y-axis label
+            (insert (format "%s words remaining\n"
+                          (org-scribe-planner--format-number total)))
+            (insert "↑\n")
+
+            ;; Draw chart
+            (org-scribe-planner--draw-ascii-burndown
+             data-points chart-width chart-height total)
+
+            (insert "  ")
+            (insert (format "Start: %s" (org-scribe-plan-start-date plan)))
+            (insert (make-string (- chart-width 35) ?\s))
+            (insert (format "End: %s\n\n" (org-scribe-plan-end-date plan)))
+
+            (insert "Legend:\n")
+            (insert "  " (propertize "---" 'face 'org-done) " Ideal burndown\n")
+            (insert "  " (propertize "###" 'face 'org-warning) " Actual burndown\n\n")
+
+            (insert (propertize "Interpretation:\n" 'face 'org-level-2))
+            (insert "  • Actual below ideal = Ahead of schedule\n")
+            (insert "  • Actual above ideal = Behind schedule\n")
+            (insert "  • Lines converging = Catching up\n")
+            (insert "  • Lines diverging = Falling further behind\n\n")
+
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow)))
+
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
+
+;;; Velocity Statistics Display
+
+;;;###autoload
+(defun org-scribe-planner-show-velocity ()
+  "Display velocity statistics and trends for the active plan."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (daily-counts (org-scribe-plan-daily-word-counts plan))
+             (counts-with-words (cl-remove-if-not
+                                (lambda (entry)
+                                  (numberp (org-scribe-planner--get-entry-words entry)))
+                                daily-counts))
+             (sorted-entries (sort (copy-sequence counts-with-words)
+                                  (lambda (a b) (string< (car a) (car b)))))
+             (dates (mapcar #'car sorted-entries))
+             (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
+             (target (org-scribe-plan-daily-words plan))
+             (velocity (org-scribe-planner--calculate-velocity plan)))
+
+        (with-current-buffer (get-buffer-create "*Velocity Statistics*")
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize "VELOCITY STATISTICS\n"
+                              'face '(:weight bold :height 1.2)))
+            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                              'face 'org-level-1))
+            (insert (make-string 70 ?═) "\n\n")
+
+            ;; Summary statistics
+            (insert (propertize "📊 Summary Statistics\n" 'face 'org-level-2))
+            (when (> (length word-counts) 0)
+              (let ((total (apply '+ word-counts))
+                    (avg (plist-get velocity :average))
+                    (recent (plist-get velocity :recent))
+                    (max-words (apply 'max word-counts))
+                    (min-words (apply 'min word-counts))
+                    (days-logged (plist-get velocity :days-logged)))
+
+                (insert (format "  Days logged:      %d\n" days-logged))
+                (insert (format "  Total words:      %s\n"
+                              (org-scribe-planner--format-number total)))
+                (insert (format "  Average:          %.0f words/day\n" avg))
+                (insert (format "  Recent (7 days):  %.0f words/day\n" recent))
+                (insert (format "  Target:           %s words/day\n"
+                              (org-scribe-planner--format-number target)))
+                (insert (format "  Best day:         %s words\n"
+                              (org-scribe-planner--format-number max-words)))
+                (insert (format "  Worst day:        %s words\n"
+                              (org-scribe-planner--format-number min-words)))
+                (insert (format "  Trend:            %s\n\n"
+                              (org-scribe-planner--format-trend
+                               (plist-get velocity :trend)))))
+
+              ;; Performance bar chart
+              (insert (propertize "📈 Performance Overview\n" 'face 'org-level-2))
+              (insert (format "  Target: %s words/day\n\n"
+                            (org-scribe-planner--format-number target)))
+
+              ;; Show last 14 days as bars
+              (let ((recent-entries (last sorted-entries (min 14 (length sorted-entries)))))
+                (dolist (entry recent-entries)
+                  (let* ((date (car entry))
+                         (words (org-scribe-planner--get-entry-words entry))
+                         (percent (if (> target 0)
+                                    (/ (* 100.0 words) target)
+                                  100))
+                         (bar-length (min 40 (round (/ (* percent 40) 100.0))))
+                         (bar (make-string bar-length ?█))
+                         (face (cond
+                               ((>= percent 100) 'org-done)
+                               ((>= percent 75) 'org-scheduled)
+                               (t 'org-warning))))
+
+                    (insert (format "  %s  " date))
+                    (insert (propertize bar 'face face))
+                    (insert (format " %s (%.0f%%)\n"
+                                  (org-scribe-planner--format-number words)
+                                  percent)))))
+
+              (insert "\n")
+              (insert (propertize "Color coding:\n" 'face 'org-level-3))
+              (insert "  " (propertize "█" 'face 'org-done)
+                     " ≥100% of target\n")
+              (insert "  " (propertize "█" 'face 'org-scheduled)
+                     " 75-99% of target\n")
+              (insert "  " (propertize "█" 'face 'org-warning)
+                     " <75% of target\n"))
+
+            (insert "\n" (make-string 70 ?═) "\n")
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow)))
+
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
+
+;;; Consistency Heatmap
+
+;;;###autoload
+(defun org-scribe-planner-show-heatmap ()
+  "Display calendar heatmap showing writing consistency."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (schedule (org-scribe-planner--generate-day-schedule plan))
+             (daily-counts (org-scribe-plan-daily-word-counts plan)))
+
+        (with-current-buffer (get-buffer-create "*Writing Heatmap*")
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize "WRITING CONSISTENCY HEATMAP\n"
+                              'face '(:weight bold :height 1.2)))
+            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                              'face 'org-level-1))
+            (insert (make-string 70 ?═) "\n\n")
+
+            ;; Month headers and calendar grid
+            (let ((current-month nil)
+                  (current-year nil))
+              (dolist (day schedule)
+                (let* ((date (plist-get day :date))
+                       (date-parts (mapcar 'string-to-number (split-string date "-")))
+                       (year (nth 0 date-parts))
+                       (month (nth 1 date-parts))
+                       (day-num (nth 2 date-parts))
+                       (dow (calendar-day-of-week (list month day-num year)))
+                       (entry (assoc date daily-counts))
+                       (target (plist-get day :words))
+                       (actual (when entry (org-scribe-planner--get-entry-words entry)))
+                       (is-spare (plist-get day :is-spare-day))
+                       (performance (cond
+                                    (is-spare 'spare)
+                                    ((not (numberp actual)) 'no-data)
+                                    ((>= actual target) 'met)
+                                    ((>= actual (* 0.75 target)) 'partial)
+                                    (t 'missed)))
+                       (char (pcase performance
+                              ('spare ?·)
+                              ('no-data ?□)
+                              ('met ?█)
+                              ('partial ?▓)
+                              ('missed ?░)))
+                       (face (pcase performance
+                              ('spare 'org-agenda-dimmed-todo-face)
+                              ('no-data 'shadow)
+                              ('met 'org-done)
+                              ('partial 'org-scheduled)
+                              ('missed 'org-warning))))
+
+                  ;; New month header
+                  (when (not (and (eq current-month month) (eq current-year year)))
+                    (when current-month (insert "\n\n"))
+                    (insert (propertize
+                            (format "%s %d\n"
+                                   (calendar-month-name month)
+                                   year)
+                            'face 'org-level-2))
+                    (insert "  Mo Tu We Th Fr Sa Su\n")
+                    (setq current-month month
+                          current-year year)
+
+                    ;; Padding for first week (1=Monday, 0=Sunday)
+                    (when (> dow 0)
+                      (insert (make-string (* 3 dow) ?\s))))
+
+                  ;; Day cell
+                  (insert (propertize (format " %c " char) 'face face))
+
+                  ;; New line on Sunday
+                  (when (= dow 0)
+                    (insert "\n")))))
+
+            (insert "\n\n")
+            (insert (propertize "Legend:\n" 'face 'org-level-2))
+            (insert "  " (propertize "█ " 'face 'org-done) "Met target (100%+)\n")
+            (insert "  " (propertize "▓ " 'face 'org-scheduled) "Partial (75-99%)\n")
+            (insert "  " (propertize "░ " 'face 'org-warning) "Missed (<75%)\n")
+            (insert "  " (propertize "□ " 'face 'shadow) "No data\n")
+            (insert "  " (propertize "· " 'face 'org-agenda-dimmed-todo-face) "Spare day\n\n")
+
+            (insert (propertize "Patterns to look for:\n" 'face 'org-level-2))
+            (insert "  • Dense green clusters = Productive periods\n")
+            (insert "  • Red patches = Struggle periods\n")
+            (insert "  • Empty squares = Missing data (need to log)\n")
+            (insert "  • Vertical patterns = Identify best/worst days of week\n\n")
+
+            (insert (make-string 70 ?═) "\n")
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow)))
+
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
 
 ;;; Dashboard Menu
 
@@ -407,10 +756,36 @@ Returns plist with :status :days-ahead :words-ahead."
   (interactive)
   (let ((choice (completing-read
                  "Select dashboard: "
-                 '("Progress Dashboard")
+                 '("Progress Dashboard"
+                   "Burndown Chart"
+                   "Velocity Statistics"
+                   "Consistency Heatmap"
+                   "Show All Dashboards")
                  nil t)))
     (pcase choice
-      ("Progress Dashboard" (org-scribe-planner-show-progress-dashboard)))))
+      ("Progress Dashboard" (org-scribe-planner-show-progress-dashboard))
+      ("Burndown Chart" (org-scribe-planner-show-burndown))
+      ("Velocity Statistics" (org-scribe-planner-show-velocity))
+      ("Consistency Heatmap" (org-scribe-planner-show-heatmap))
+      ("Show All Dashboards" (org-scribe-planner-show-all-dashboards)))))
+
+;;;###autoload
+(defun org-scribe-planner-show-all-dashboards ()
+  "Display all dashboards in split windows."
+  (interactive)
+  (delete-other-windows)
+  (org-scribe-planner-show-progress-dashboard)
+  (split-window-below)
+  (other-window 1)
+  (org-scribe-planner-show-burndown)
+  (split-window-right)
+  (other-window 1)
+  (org-scribe-planner-show-velocity)
+  (other-window 1)
+  (split-window-right)
+  (other-window 1)
+  (org-scribe-planner-show-heatmap)
+  (balance-windows))
 
 ;;; Provide
 

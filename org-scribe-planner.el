@@ -33,6 +33,14 @@
 ;; Dashboard functions will be loaded at the end of this file
 (declare-function org-scribe-planner-show-progress-dashboard
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-burndown
+                  "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-velocity
+                  "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-heatmap
+                  "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-dashboards-menu
+                  "org-scribe-planner-dashboards")
 
 ;;; Customization
 
@@ -1054,8 +1062,9 @@ Optional FILEPATH shows the location of the plan file."
           (insert (propertize "[ACTIVE PLAN]\n" 'face 'org-done)))
         (insert (make-string 80 ?=) "\n")
         (insert "Commands:\n")
-        (insert "  [q] quit  [d] daily word count  [u] update progress  [D] dashboard\n")
-        (insert "  [r] recalculate plan  [a] adjust remaining days (keep end date fixed)\n")
+        (insert "  [q] quit  [d] daily word count  [u] update progress\n")
+        (insert "  [r] recalculate plan  [a] adjust remaining days\n")
+        (insert "  [D] dashboards menu  [p] progress  [b] burndown  [v] velocity  [h] heatmap\n")
 	(insert (make-string 80 ?=) "\n\n")
 
         ;; Summary
@@ -1191,8 +1200,9 @@ Optional FILEPATH shows the location of the plan file."
 
         (insert "\n" (make-string 80 ?=) "\n")
         (insert "\nCommands:\n")
-        (insert "  [q] quit  [d] daily word count  [u] update progress  [D] dashboard\n")
-        (insert "  [r] recalculate plan  [a] adjust remaining days (keep end date fixed)\n"))
+        (insert "  [q] quit  [d] daily word count  [u] update progress\n")
+        (insert "  [r] recalculate plan  [a] adjust remaining days\n")
+        (insert "  [D] dashboards menu  [p] progress  [b] burndown  [v] velocity  [h] heatmap\n"))
 
       (goto-char (point-min))
       (display-buffer buffer))))
@@ -1206,7 +1216,11 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "u") #'org-scribe-planner-update-progress)
 (define-key org-scribe-planner-calendar-mode-map (kbd "d") #'org-scribe-planner-update-daily-word-count)
 (define-key org-scribe-planner-calendar-mode-map (kbd "a") #'org-scribe-planner-adjust-remaining-plan)
-(define-key org-scribe-planner-calendar-mode-map (kbd "D") #'org-scribe-planner-show-progress-dashboard)
+(define-key org-scribe-planner-calendar-mode-map (kbd "D") #'org-scribe-planner-dashboards-menu)
+(define-key org-scribe-planner-calendar-mode-map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
+(define-key org-scribe-planner-calendar-mode-map (kbd "b") #'org-scribe-planner-show-burndown)
+(define-key org-scribe-planner-calendar-mode-map (kbd "v") #'org-scribe-planner-show-velocity)
+(define-key org-scribe-planner-calendar-mode-map (kbd "h") #'org-scribe-planner-show-heatmap)
 
 ;;; Org-agenda Integration
 
