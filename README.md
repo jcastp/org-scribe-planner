@@ -4,6 +4,14 @@ A comprehensive writing planning tool for Emacs Org-mode, inspired by [pacemaker
 
 ## Recent Updates
 
+### Version 0.3.0
+- **Comprehensive Dashboards**: Multiple visualization dashboards for tracking progress, velocity, and performance
+- **Multi-Metric Dashboard**: Unified view of all key metrics including progress, velocity trends, and performance analytics
+- **Spare Day Notes**: Add custom notes to spare days (holidays, breaks) without affecting word counts
+- **Advanced Analytics**: Velocity tracking, momentum scores, consistency metrics, and achievement rates
+- **Visual Charts**: SVG-based cumulative progress, burndown, velocity, and heatmap charts
+- **Quick Access**: Dashboard menu and keyboard shortcuts for instant access to all visualizations
+
 ### Version 0.2.0
 - **Spare Day Management**: Full control over spare days - add, remove individually, or clear all at once
 - **Daily Word Count Tracking**: Track actual words written each day with optional notes
@@ -17,13 +25,25 @@ A comprehensive writing planning tool for Emacs Org-mode, inspired by [pacemaker
 ### Core Functionality
 - **Smart Calculation**: Provide any 2 of 3 variables (total words, daily words, days) and automatically calculate the third
 - **Beautiful Visualizations**: Dual calendar system with custom buffer display and org-agenda integration
-- **Flexible Spare Days**: Add, remove, and manage breaks, holidays, and weekends with multiple configuration options
+- **Flexible Spare Days**: Add, remove, and manage breaks, holidays, and weekends with custom notes
 - **Plan Modification**: Easily recalculate your plan when circumstances change
 - **Progress Tracking**: Update your word count and see if you're ahead or behind schedule
 - **Daily Word Count Tracking**: Record actual words written per day with optional notes
 - **Milestone Tracking**: Automatic calculation of 25%, 50%, 75%, and 100% completion dates
 - **Org-mode Integration**: Save plans as org files with properties and scheduled entries
 - **Smart Error Messages**: Clear, actionable error messages with helpful suggestions
+
+### Dashboard & Analytics
+- **Multi-Metric Dashboard**: Comprehensive overview with progress, velocity, performance, and projections
+- **Progress Dashboard**: Detailed view of overall progress, schedule status, and velocity
+- **Cumulative Progress Chart**: SVG visualization of actual vs. expected cumulative progress
+- **Burndown Chart**: Track remaining words over time
+- **Velocity Analysis**: 7-day, 14-day, 30-day, and overall velocity tracking
+- **Velocity Trends**: Visual trends showing acceleration or deceleration patterns
+- **Performance Analytics**: Consistency scores, achievement rates, and streak tracking
+- **Day-of-Week Heatmap**: Identify your most productive writing days
+- **Split Dashboard View**: View multiple dashboards side-by-side
+- **Dashboard Menu**: Quick access to all visualization tools
 
 ### Planning Modes
 
@@ -77,7 +97,10 @@ git clone https://codeberg.org/jcastp/org-scribe-planner.git
    ("C-c w d" . org-scribe-planner-update-daily-word-count)
    ("C-c w r" . org-scribe-planner-recalculate)
    ("C-c w m" . org-scribe-planner-show-milestones)
-   ("C-c w s" . org-scribe-planner-sync-agenda)))
+   ("C-c w s" . org-scribe-planner-sync-agenda)
+   ("C-c w D" . org-scribe-planner-dashboards-menu)
+   ("C-c w M" . org-scribe-planner-show-multi-metric-dashboard)
+   ("C-c w p" . org-scribe-planner-show-progress-dashboard)))
 ```
 
 ## Usage
@@ -106,6 +129,7 @@ Run `M-x org-scribe-planner-new-plan` and follow the interactive prompts:
    - **Remove: Specific date**: Remove a single spare day from the list
    - **Remove: All spare days**: Clear all configured spare days
    - **List current spare days**: View all currently configured spare days
+   - **Custom Notes**: Add optional notes to spare days (e.g., "Holiday", "Vacation", "Conference") that display in the calendar without affecting word counts
 
 6. **View your plan**: A beautiful calendar visualization appears showing:
    - Daily word counts
@@ -171,6 +195,8 @@ The calendar will show:
 - Percentage achieved for each day
 - Notes alongside each entry
 
+**Spare Day Notes**: You can also add notes to spare days without affecting word counts. For example, entering "0" words with a note like "Conference" or "Holiday" will track the reason for the break without impacting your cumulative progress calculations.
+
 ### Recalculating Your Plan
 
 Life happens! Recalculate when things change:
@@ -200,6 +226,112 @@ Shows key milestone dates:
  75% - 2024-11-23 (37500 words)
 100% - 2024-11-30 (50000 words)
 ```
+
+### Using Dashboards
+
+org-scribe-planner provides comprehensive dashboards to visualize your writing progress and performance. After loading a plan or updating your daily word counts, you can access various dashboards to gain insights into your writing patterns.
+
+**Quick Start**: Press `m` in the calendar view to see the Multi-Metric Dashboard, or press `D` to open the dashboard menu and select any visualization.
+
+#### Multi-Metric Dashboard
+
+```elisp
+M-x org-scribe-planner-show-multi-metric-dashboard
+```
+
+The flagship dashboard showing everything at a glance:
+- **Overview**: Progress percentage, status (ahead/behind), days elapsed/remaining
+- **Velocity Trends**: 7-day, 14-day, and 30-day average with acceleration/deceleration indicators
+- **Performance Metrics**: Consistency score, achievement rate, current and longest streaks
+- **Best Performing Days**: Top 3 days of the week ranked by average words written
+- **Completion Projection**: Estimated completion date based on current velocity
+
+#### Progress Dashboard
+
+```elisp
+M-x org-scribe-planner-show-progress-dashboard
+```
+
+Detailed progress analysis with:
+- Overall progress with visual progress bar
+- Today's target vs. actual
+- Schedule status (ahead/behind by words and days)
+- Velocity and momentum metrics
+- Current writing streak
+
+#### Cumulative Progress Chart
+
+```elisp
+M-x org-scribe-planner-show-cumulative-progress
+```
+
+SVG chart showing:
+- Actual cumulative progress line
+- Expected progress line
+- Visual gap between actual and expected
+- Current status summary
+
+#### Performance Analytics
+
+```elisp
+M-x org-scribe-planner-show-performance-analytics
+```
+
+Deep dive into your writing patterns:
+- Consistency score (percentage of days logged)
+- Target achievement rate
+- Momentum score (0-100)
+- Current and longest streaks
+- Day-of-week performance breakdown
+
+#### Velocity Analysis
+
+```elisp
+M-x org-scribe-planner-show-velocity        # Text-based velocity report
+M-x org-scribe-planner-show-velocity-chart  # SVG velocity chart
+M-x org-scribe-planner-show-velocity-trends # Multi-window velocity trends
+```
+
+Track your writing speed over different time periods:
+- 7-day, 14-day, 30-day averages
+- Overall project velocity
+- Acceleration/deceleration patterns
+- Comparison against target velocity
+
+#### Day-of-Week Heatmap
+
+```elisp
+M-x org-scribe-planner-show-heatmap
+```
+
+Visual heatmap showing which days of the week you're most productive.
+
+#### Burndown Chart
+
+```elisp
+M-x org-scribe-planner-show-burndown
+```
+
+Track remaining words over time with:
+- Ideal burndown line
+- Actual burndown line
+- Projection based on current velocity
+
+#### Dashboard Menu
+
+```elisp
+M-x org-scribe-planner-dashboards-menu
+```
+
+Interactive menu to select any dashboard quickly.
+
+#### Split Dashboard View
+
+```elisp
+M-x org-scribe-planner-show-split-dashboards
+```
+
+View multiple dashboards simultaneously in a split-window layout.
 
 ### Syncing to Org-Agenda
 
@@ -257,10 +389,25 @@ Week 2:
 
 ### Calendar Buffer Commands
 
+#### Basic Commands
 - `q` - Quit window
 - `r` - Recalculate plan
 - `u` - Update overall progress
 - `d` - Update daily word count for a specific day
+- `a` - Adjust remaining plan (recalculate remaining days)
+
+#### Dashboard Commands
+- `D` - Open dashboard menu (select any dashboard)
+- `m` - Multi-metric dashboard (comprehensive overview)
+- `p` - Progress dashboard (detailed progress view)
+- `s` - Split dashboards (side-by-side view)
+- `g` - Cumulative progress chart (SVG)
+- `b` - Burndown chart
+- `v` - Velocity analysis
+- `V` - Velocity chart (SVG)
+- `t` - Velocity trends (multi-window)
+- `P` - Performance analytics
+- `h` - Day-of-week heatmap
 
 ## File Structure
 
@@ -276,8 +423,11 @@ Plans are saved as org files in `org-scribe-planner-directory`:
 :END_DATE: 2024-11-30
 :CURRENT_WORDS: 15000
 :SPARE_DAYS: 2024-11-02,2024-11-03,2024-11-09,2024-11-10,...
-:DAILY_WORD_COUNTS: 2024-11-01:2500:Great start!,2024-11-04:2100:Slow day
+:DAILY_WORD_COUNTS: 2024-11-01:2500:Great start!,2024-11-04:2100:Slow day,2024-11-02:0:Thanksgiving
 :END:
+
+Note: Spare days can have notes without word counts (e.g., "2024-11-02:0:Thanksgiving")
+or word counts can be logged on spare days without affecting cumulative progress calculations.
 
 ** Schedule
 
@@ -353,6 +503,16 @@ SCHEDULED: <2024-11-01>
 
 7. **Sync to org-agenda**: Integrate writing goals with your daily task management
 
+8. **Check the Multi-Metric Dashboard daily**: Press `m` in the calendar view for a comprehensive overview of your progress, velocity, and performance
+
+9. **Monitor velocity trends**: Use velocity analysis to understand if you're accelerating or slowing down
+
+10. **Use the heatmap to optimize**: The day-of-week heatmap shows when you're most productive - schedule important writing sessions accordingly
+
+11. **Track consistency**: Aim for high consistency scores (80%+) rather than sporadic intense sessions
+
+12. **Add notes to spare days**: Document why certain days were breaks (holidays, conferences, etc.) for future planning reference
+
 ## Troubleshooting
 
 ### "Not enough working days" error
@@ -380,13 +540,21 @@ The package validates all numeric input:
 
 ## Contributing
 
-Contributions are welcome! This package could be extended with:
+Contributions are welcome! This package is actively developed and includes:
+- ✅ Multiple dashboard visualizations
+- ✅ SVG-based charts (cumulative progress, burndown, velocity, heatmap)
+- ✅ Performance analytics and velocity tracking
+- ✅ Spare day notes and custom annotations
+
+Future enhancements could include:
 - Export to various formats (PDF, CSV, iCal)
 - Integration with word counting tools
 - Automatic word count detection from org files
 - Writing session timer integration
-- Multi-project views
-- Chart visualizations using gnuplot
+- Multi-project comparison views
+- Interactive chart annotations
+- Goal templates for common writing projects
+- Pomodoro/time-based session tracking
 
 ## License
 
