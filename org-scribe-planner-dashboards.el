@@ -396,6 +396,7 @@ Returns plist with :status :days-ahead :words-ahead."
     (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
     (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
     (define-key map (kbd "V") #'org-scribe-planner-show-velocity-chart)
+    (define-key map (kbd "P") #'org-scribe-planner-show-performance-analytics)
     (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
     (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
     (define-key map (kbd "?") #'describe-mode)
@@ -421,6 +422,8 @@ Returns plist with :status :days-ahead :words-ahead."
       (org-scribe-planner-show-velocity))
      ((string= buffer-name "*Velocity Chart*")
       (org-scribe-planner-show-velocity-chart))
+     ((string= buffer-name "*Performance Analytics*")
+      (org-scribe-planner-show-performance-analytics))
      ((string= buffer-name "*Writing Heatmap*")
       (org-scribe-planner-show-heatmap))
      (t
@@ -1284,6 +1287,313 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
           (org-scribe-planner-dashboard-mode)
           (display-buffer (current-buffer)))))))
 
+;;; Performance Analytics Helper Functions
+
+(defun org-scribe-planner--calculate-day-of-week-stats (plan)
+  "Calculate day-of-week performance statistics for PLAN.
+Returns an alist with keys 0-6 (Sunday-Saturday) and values as plists
+containing :day-name :total-words :count :average."
+  (let ((schedule (org-scribe-planner--generate-day-schedule plan))
+        (daily-counts (org-scribe-plan-daily-word-counts plan))
+        (dow-data (make-vector 7 nil)))
+
+    ;; Initialize day-of-week data structure
+    (dotimes (i 7)
+      (aset dow-data i (list :day-name (calendar-day-name i nil t)
+                             :total-words 0
+                             :count 0
+                             :average 0.0)))
+
+    ;; Accumulate data by day of week
+    (dolist (day schedule)
+      (let* ((date (plist-get day :date))
+             (is-spare (plist-get day :is-spare-day))
+             (entry (assoc date daily-counts))
+             (actual-words (when entry
+                            (org-scribe-planner--get-entry-words entry))))
+
+        ;; Only count non-spare days with data
+        (when (and (not is-spare) (numberp actual-words))
+          (let* ((date-parts (mapcar 'string-to-number (split-string date "-")))
+                 (year (nth 0 date-parts))
+                 (month (nth 1 date-parts))
+                 (day-num (nth 2 date-parts))
+                 (dow (calendar-day-of-week (list month day-num year)))
+                 (dow-entry (aref dow-data dow)))
+
+            (plist-put dow-entry :total-words
+                      (+ (plist-get dow-entry :total-words) actual-words))
+            (plist-put dow-entry :count
+                      (1+ (plist-get dow-entry :count)))))))
+
+    ;; Calculate averages
+    (dotimes (i 7)
+      (let ((dow-entry (aref dow-data i)))
+        (when (> (plist-get dow-entry :count) 0)
+          (plist-put dow-entry :average
+                    (/ (float (plist-get dow-entry :total-words))
+                       (plist-get dow-entry :count))))))
+
+    ;; Convert vector to alist
+    (let ((result nil))
+      (dotimes (i 7)
+        (push (cons i (aref dow-data i)) result))
+      (nreverse result))))
+
+(defun org-scribe-planner--calculate-consistency-score (plan)
+  "Calculate consistency score for PLAN.
+Returns a plist with :score (0-100), :days-logged, :working-days, :rate."
+  (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
+         (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (working-days 0)
+         (days-logged 0))
+
+    ;; Count working days and days with logged data
+    (dolist (day schedule)
+      (let* ((date (plist-get day :date))
+             (is-spare (plist-get day :is-spare-day))
+             (entry (assoc date daily-counts))
+             (has-data (and entry
+                           (numberp (org-scribe-planner--get-entry-words entry)))))
+
+        (unless is-spare
+          (setq working-days (1+ working-days))
+          (when has-data
+            (setq days-logged (1+ days-logged))))))
+
+    (let ((rate (if (> working-days 0)
+                   (/ (* 100.0 days-logged) working-days)
+                 0)))
+      (list :score (round rate)
+            :days-logged days-logged
+            :working-days working-days
+            :rate rate))))
+
+(defun org-scribe-planner--calculate-target-achievement-rate (plan)
+  "Calculate target achievement rate for PLAN.
+Returns a plist with :rate, :days-met, :days-partial, :days-missed, :total-days."
+  (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
+         (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (days-met 0)
+         (days-partial 0)
+         (days-missed 0)
+         (total-days 0))
+
+    ;; Categorize each working day
+    (dolist (day schedule)
+      (let* ((date (plist-get day :date))
+             (is-spare (plist-get day :is-spare-day))
+             (target (plist-get day :words))
+             (entry (assoc date daily-counts))
+             (actual (when entry
+                      (org-scribe-planner--get-entry-words entry))))
+
+        (when (and (not is-spare) (numberp actual))
+          (setq total-days (1+ total-days))
+          (cond
+           ((>= actual target) (setq days-met (1+ days-met)))
+           ((>= actual (* 0.75 target)) (setq days-partial (1+ days-partial)))
+           (t (setq days-missed (1+ days-missed)))))))
+
+    (let ((rate (if (> total-days 0)
+                   (/ (* 100.0 days-met) total-days)
+                 0)))
+      (list :rate rate
+            :days-met days-met
+            :days-partial days-partial
+            :days-missed days-missed
+            :total-days total-days))))
+
+(defun org-scribe-planner--calculate-efficiency-ratio (plan)
+  "Calculate efficiency ratio for PLAN.
+Returns actual velocity / planned velocity as a percentage."
+  (let* ((velocity (org-scribe-planner--calculate-velocity plan))
+         (avg-velocity (plist-get velocity :average))
+         (planned-velocity (org-scribe-plan-daily-words plan)))
+
+    (if (> planned-velocity 0)
+        (* 100.0 (/ avg-velocity planned-velocity))
+      0)))
+
+;;; Performance Analytics Dashboard
+
+;;;###autoload
+(defun org-scribe-planner-show-performance-analytics ()
+  "Display comprehensive performance analytics for the active plan.
+Shows day-of-week patterns, consistency scores, and target achievement rates."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (dow-stats (org-scribe-planner--calculate-day-of-week-stats plan))
+             (consistency (org-scribe-planner--calculate-consistency-score plan))
+             (achievement (org-scribe-planner--calculate-target-achievement-rate plan))
+             (efficiency (org-scribe-planner--calculate-efficiency-ratio plan))
+             (velocity (org-scribe-planner--calculate-velocity plan))
+             (streak (org-scribe-planner--calculate-current-streak plan)))
+
+        (with-current-buffer (get-buffer-create "*Performance Analytics*")
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize "PERFORMANCE ANALYTICS\n"
+                              'face '(:weight bold :height 1.2)))
+            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                              'face 'org-level-1))
+            (insert (make-string 80 ?═) "\n\n")
+
+            ;; Consistency Score Section
+            (insert (propertize "📅 Consistency Score\n" 'face 'org-level-2))
+            (let* ((score (plist-get consistency :score))
+                   (score-face (cond
+                               ((>= score 90) 'org-done)
+                               ((>= score 70) 'org-scheduled)
+                               (t 'org-warning)))
+                   (grade (cond
+                          ((>= score 95) "A+")
+                          ((>= score 90) "A")
+                          ((>= score 85) "B+")
+                          ((>= score 80) "B")
+                          ((>= score 75) "C+")
+                          ((>= score 70) "C")
+                          ((>= score 60) "D")
+                          (t "F"))))
+
+              (insert (format "  Score: %s (%s)\n"
+                            (propertize (format "%d%%" score) 'face score-face)
+                            (propertize grade 'face score-face)))
+              (insert (format "  Days logged: %d / %d working days\n"
+                            (plist-get consistency :days-logged)
+                            (plist-get consistency :working-days)))
+              (insert "  ")
+              (insert (org-scribe-planner--ascii-progress-bar
+                      (plist-get consistency :rate) 50))
+              (insert "\n\n"))
+
+            ;; Target Achievement Rate Section
+            (insert (propertize "🎯 Target Achievement Rate\n" 'face 'org-level-2))
+            (let* ((rate (plist-get achievement :rate))
+                   (rate-face (cond
+                              ((>= rate 80) 'org-done)
+                              ((>= rate 60) 'org-scheduled)
+                              (t 'org-warning))))
+
+              (insert (format "  Achievement rate: %s\n"
+                            (propertize (format "%.1f%%" rate) 'face rate-face)))
+              (insert (format "  Days met target (100%%+):  %s\n"
+                            (propertize (format "%d" (plist-get achievement :days-met))
+                                      'face 'org-done)))
+              (insert (format "  Days partial (75-99%%):     %d\n"
+                            (plist-get achievement :days-partial)))
+              (insert (format "  Days missed (<75%%):        %s\n"
+                            (propertize (format "%d" (plist-get achievement :days-missed))
+                                      'face 'org-warning)))
+              (insert (format "  Total days evaluated:       %d\n\n"
+                            (plist-get achievement :total-days))))
+
+            ;; Efficiency Ratio Section
+            (insert (propertize "⚡ Efficiency Ratio\n" 'face 'org-level-2))
+            (let ((eff-face (cond
+                            ((>= efficiency 100) 'org-done)
+                            ((>= efficiency 80) 'org-scheduled)
+                            (t 'org-warning))))
+              (insert (format "  Efficiency: %s\n"
+                            (propertize (format "%.1f%%" efficiency) 'face eff-face)))
+              (insert (format "  Actual velocity: %.0f words/day\n"
+                            (plist-get velocity :average)))
+              (insert (format "  Planned velocity: %d words/day\n"
+                            (org-scribe-plan-daily-words plan)))
+              (insert (format "  Interpretation: %s\n\n"
+                            (cond
+                             ((>= efficiency 120) "Exceeding expectations!")
+                             ((>= efficiency 100) "On track")
+                             ((>= efficiency 80) "Slightly below target")
+                             (t "Needs improvement")))))
+
+            ;; Streaks Section
+            (insert (propertize "🔥 Writing Streaks\n" 'face 'org-level-2))
+            (insert (format "  Current streak: %s\n"
+                          (propertize (format "%d days" (plist-get streak :current))
+                                    'face (if (> (plist-get streak :current) 0)
+                                            'org-done
+                                          'shadow))))
+            (insert (format "  Longest streak: %d days\n"
+                          (plist-get streak :longest)))
+            (insert (format "  Trend: %s\n\n"
+                          (org-scribe-planner--format-trend
+                           (plist-get velocity :trend))))
+
+            (insert (make-string 80 ?─) "\n\n")
+
+            ;; Day of Week Performance Section
+            (insert (propertize "📊 Performance by Day of Week\n" 'face 'org-level-2))
+            (insert "\n")
+
+            ;; Find max for scaling bars
+            (let* ((max-avg (apply 'max
+                                  (mapcar (lambda (entry)
+                                           (plist-get (cdr entry) :average))
+                                         dow-stats)))
+                   (sorted-dow (sort (copy-sequence dow-stats)
+                                    (lambda (a b) (< (car a) (car b))))))
+
+              ;; Display bars for each day
+              (dolist (entry sorted-dow)
+                (let* ((data (cdr entry))
+                       (day-name (plist-get data :day-name))
+                       (average (plist-get data :average))
+                       (count (plist-get data :count))
+                       (bar-length (if (> max-avg 0)
+                                     (round (* 40 (/ average max-avg)))
+                                   0))
+                       (bar (if (> bar-length 0)
+                               (make-string bar-length ?█)
+                             "")))
+
+                  (when (> count 0)
+                    (insert (format "  %-10s %s %s (%d days)\n"
+                                  (concat day-name ":")
+                                  (propertize bar 'face 'org-scheduled)
+                                  (propertize (format "%.0f words" average)
+                                            'face 'org-done)
+                                  count)))))
+
+              ;; Find best and worst days
+              (let* ((days-with-data (cl-remove-if
+                                     (lambda (entry)
+                                       (= 0 (plist-get (cdr entry) :count)))
+                                     dow-stats))
+                     (best-entry (when days-with-data
+                                  (car (sort (copy-sequence days-with-data)
+                                            (lambda (a b)
+                                              (> (plist-get (cdr a) :average)
+                                                 (plist-get (cdr b) :average)))))))
+                     (worst-entry (when days-with-data
+                                   (car (sort (copy-sequence days-with-data)
+                                             (lambda (a b)
+                                               (< (plist-get (cdr a) :average)
+                                                  (plist-get (cdr b) :average))))))))
+
+                (when best-entry
+                  (insert "\n")
+                  (insert (format "  Best day:  %s (%.0f words average)\n"
+                                (propertize (plist-get (cdr best-entry) :day-name)
+                                          'face 'org-done)
+                                (plist-get (cdr best-entry) :average))))
+
+                (when worst-entry
+                  (insert (format "  Worst day: %s (%.0f words average)\n"
+                                (propertize (plist-get (cdr worst-entry) :day-name)
+                                          'face 'org-warning)
+                                (plist-get (cdr worst-entry) :average))))))
+
+            (insert "\n" (make-string 80 ?═) "\n")
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow)))
+
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
+
 ;;; Velocity Chart (Chart.el Bar Chart)
 
 ;;;###autoload
@@ -1486,6 +1796,7 @@ Shows daily word counts over time with a 7-day moving average."
                    "Cumulative Progress"
                    "Velocity Statistics"
                    "Velocity Chart (Chart.el)"
+                   "Performance Analytics"
                    "Consistency Heatmap"
                    "Show All Dashboards")
                  nil t)))
@@ -1496,6 +1807,7 @@ Shows daily word counts over time with a 7-day moving average."
       ("Cumulative Progress" (org-scribe-planner-show-cumulative-progress))
       ("Velocity Statistics" (org-scribe-planner-show-velocity))
       ("Velocity Chart (Chart.el)" (org-scribe-planner-show-velocity-chart))
+      ("Performance Analytics" (org-scribe-planner-show-performance-analytics))
       ("Consistency Heatmap" (org-scribe-planner-show-heatmap))
       ("Show All Dashboards" (org-scribe-planner-show-all-dashboards)))))
 
