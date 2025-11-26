@@ -45,6 +45,8 @@
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-velocity
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-velocity-chart
+                  "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-heatmap
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-dashboards-menu
@@ -1231,6 +1233,7 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "b") #'org-scribe-planner-show-burndown)
 (define-key org-scribe-planner-calendar-mode-map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
 (define-key org-scribe-planner-calendar-mode-map (kbd "v") #'org-scribe-planner-show-velocity)
+(define-key org-scribe-planner-calendar-mode-map (kbd "V") #'org-scribe-planner-show-velocity-chart)
 (define-key org-scribe-planner-calendar-mode-map (kbd "h") #'org-scribe-planner-show-heatmap)
 
 ;;; Org-agenda Integration

@@ -20,6 +20,8 @@
 
 ;;; Code:
 
+(require 'chart)  ; Built-in Emacs charting library
+
 ;; Declare functions from org-scribe-planner (avoid circular dependency)
 (declare-function org-scribe-planner--get-current-plan "org-scribe-planner")
 (declare-function org-scribe-planner--generate-day-schedule "org-scribe-planner")
@@ -393,6 +395,7 @@ Returns plist with :status :days-ahead :words-ahead."
     (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
     (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
     (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
+    (define-key map (kbd "V") #'org-scribe-planner-show-velocity-chart)
     (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
     (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
     (define-key map (kbd "?") #'describe-mode)
@@ -416,6 +419,8 @@ Returns plist with :status :days-ahead :words-ahead."
       (org-scribe-planner-show-cumulative-progress))
      ((string= buffer-name "*Velocity Statistics*")
       (org-scribe-planner-show-velocity))
+     ((string= buffer-name "*Velocity Chart*")
+      (org-scribe-planner-show-velocity-chart))
      ((string= buffer-name "*Writing Heatmap*")
       (org-scribe-planner-show-heatmap))
      (t
@@ -1136,6 +1141,30 @@ WIDTH and HEIGHT are dimensions in pixels."
             (org-scribe-planner-dashboard-mode)
             (display-buffer (current-buffer))))))))
 
+;;; Helper Functions - Moving Average and Date Formatting
+
+(defun org-scribe-planner--moving-average (values window)
+  "Calculate WINDOW-day moving average of VALUES.
+VALUES is a list of numbers, WINDOW is the number of days to average over."
+  (let ((result nil))
+    (dotimes (i (length values))
+      (let* ((start (max 0 (- i (1- window))))
+             (window-values (cl-subseq values start (1+ i)))
+             (avg (/ (float (apply '+ window-values)) (length window-values))))
+        (push avg result)))
+    (nreverse result)))
+
+(defun org-scribe-planner--format-date-labels (dates &optional max-labels)
+  "Format DATES list for chart labels.
+Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
+  (unless max-labels (setq max-labels 10))
+  (let ((step (max 1 (/ (length dates) max-labels))))
+    (cl-loop for date in dates
+             for i from 0
+             collect (if (= 0 (mod i step))
+                        (substring date 5)  ; "MM-DD" format
+                      ""))))
+
 ;;; Velocity Statistics Display
 
 ;;;###autoload
@@ -1152,7 +1181,6 @@ WIDTH and HEIGHT are dimensions in pixels."
                                 daily-counts))
              (sorted-entries (sort (copy-sequence counts-with-words)
                                   (lambda (a b) (string< (car a) (car b)))))
-             (dates (mapcar #'car sorted-entries))
              (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
              (target (org-scribe-plan-daily-words plan))
              (velocity (org-scribe-planner--calculate-velocity plan)))
@@ -1191,8 +1219,30 @@ WIDTH and HEIGHT are dimensions in pixels."
                               (org-scribe-planner--format-trend
                                (plist-get velocity :trend)))))
 
-              ;; Performance bar chart
-              (insert (propertize "📈 Performance Overview\n" 'face 'org-level-2))
+              ;; Chart.el visualization
+              (when (> (length word-counts) 0)
+                (insert (propertize "📊 Daily Word Counts Chart\n" 'face 'org-level-2))
+                (insert "\n")
+
+                ;; Use chart.el to create vertical bar chart
+                (let* ((chart-entries (last sorted-entries (min 20 (length sorted-entries))))
+                       (chart-dates (mapcar #'car chart-entries))
+                       (chart-words (mapcar #'org-scribe-planner--get-entry-words chart-entries))
+                       (chart-labels (org-scribe-planner--format-date-labels chart-dates 10)))
+
+                  (chart-bar-quickie 'vertical
+                                    (format "Daily Word Counts - %s"
+                                            (org-scribe-plan-title plan))
+                                    chart-labels
+                                    "Days"
+                                    chart-words
+                                    "Words")
+                  (insert "\n"))
+
+                (insert (make-string 70 ?─) "\n\n"))
+
+              ;; Performance bar chart (detailed ASCII)
+              (insert (propertize "📈 Performance Overview (Last 14 Days)\n" 'face 'org-level-2))
               (insert (format "  Target: %s words/day\n\n"
                             (org-scribe-planner--format-number target)))
 
@@ -1233,6 +1283,95 @@ WIDTH and HEIGHT are dimensions in pixels."
           (goto-char (point-min))
           (org-scribe-planner-dashboard-mode)
           (display-buffer (current-buffer)))))))
+
+;;; Velocity Chart (Chart.el Bar Chart)
+
+;;;###autoload
+(defun org-scribe-planner-show-velocity-chart ()
+  "Display velocity bar chart using chart.el for the active plan.
+Shows daily word counts over time with a 7-day moving average."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (daily-counts (org-scribe-plan-daily-word-counts plan))
+             (counts-with-words (cl-remove-if-not
+                                (lambda (entry)
+                                  (numberp (org-scribe-planner--get-entry-words entry)))
+                                daily-counts))
+             (sorted-entries (sort (copy-sequence counts-with-words)
+                                  (lambda (a b) (string< (car a) (car b)))))
+             (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
+             (target (org-scribe-plan-daily-words plan))
+             (moving-avg (org-scribe-planner--moving-average word-counts 7)))
+
+        (if (< (length word-counts) 1)
+            (message "No word count data available to chart")
+
+          (with-current-buffer (get-buffer-create "*Velocity Chart*")
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+              (insert (propertize "VELOCITY BAR CHART\n"
+                                'face '(:weight bold :height 1.2)))
+              (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                                'face 'org-level-1))
+              (insert (make-string 80 ?═) "\n\n")
+
+              ;; Chart.el vertical bar chart
+              (let* ((chart-entries (if (> (length sorted-entries) 30)
+                                       (last sorted-entries 30)
+                                     sorted-entries))
+                     (chart-dates (mapcar #'car chart-entries))
+                     (chart-words (mapcar #'org-scribe-planner--get-entry-words chart-entries))
+                     (chart-labels (org-scribe-planner--format-date-labels chart-dates 12)))
+
+                (chart-bar-quickie 'vertical
+                                  (format "Daily Word Counts - %s"
+                                          (org-scribe-plan-title plan))
+                                  chart-labels
+                                  "Days"
+                                  chart-words
+                                  "Words")
+                (insert "\n"))
+
+              (insert (make-string 80 ?─) "\n\n")
+
+              ;; Statistics below chart
+              (insert (propertize "Statistics\n" 'face 'org-level-2))
+              (let* ((total (apply '+ word-counts))
+                     (avg (/ (float (apply '+ word-counts)) (length word-counts)))
+                     (max-words (apply 'max word-counts))
+                     (min-words (apply 'min word-counts))
+                     (recent-avg (if (>= (length moving-avg) 1)
+                                    (car (last moving-avg))
+                                  avg)))
+
+                (insert (format "  Target:           %s words/day\n"
+                              (org-scribe-planner--format-number target)))
+                (insert (format "  Average:          %.0f words/day (%d days)\n"
+                              avg (length word-counts)))
+                (insert (format "  Recent (7-day MA): %.0f words/day\n" recent-avg))
+                (insert (format "  Best day:         %s words\n"
+                              (org-scribe-planner--format-number max-words)))
+                (insert (format "  Worst day:        %s words\n"
+                              (org-scribe-planner--format-number min-words)))
+                (insert (format "  Total written:    %s words\n\n"
+                              (org-scribe-planner--format-number total))))
+
+              (insert (propertize "Interpretation:\n" 'face 'org-level-2))
+              (insert "  • Bars show daily word count output\n")
+              (insert "  • Compare heights to target to assess performance\n")
+              (insert "  • Look for patterns: consistent bars = steady pace\n")
+              (insert "  • Increasing heights = building momentum\n")
+              (insert "  • Gaps = days without logged data\n\n")
+
+              (insert (make-string 80 ?═) "\n")
+              (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                                'face 'shadow)))
+
+            (goto-char (point-min))
+            (org-scribe-planner-dashboard-mode)
+            (display-buffer (current-buffer))))))))
 
 ;;; Consistency Heatmap
 
@@ -1346,6 +1485,7 @@ WIDTH and HEIGHT are dimensions in pixels."
                    "Burndown Chart"
                    "Cumulative Progress"
                    "Velocity Statistics"
+                   "Velocity Chart (Chart.el)"
                    "Consistency Heatmap"
                    "Show All Dashboards")
                  nil t)))
@@ -1355,6 +1495,7 @@ WIDTH and HEIGHT are dimensions in pixels."
       ("Burndown Chart" (org-scribe-planner-show-burndown))
       ("Cumulative Progress" (org-scribe-planner-show-cumulative-progress))
       ("Velocity Statistics" (org-scribe-planner-show-velocity))
+      ("Velocity Chart (Chart.el)" (org-scribe-planner-show-velocity-chart))
       ("Consistency Heatmap" (org-scribe-planner-show-heatmap))
       ("Show All Dashboards" (org-scribe-planner-show-all-dashboards)))))
 
