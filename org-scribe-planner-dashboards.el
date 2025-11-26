@@ -196,38 +196,56 @@ Returns plist with :average :recent :trend :projected-date."
 
 (defun org-scribe-planner--calculate-schedule-position (plan)
   "Calculate if PLAN is ahead or behind schedule.
-Returns plist with :status :days-ahead :words-ahead."
+Returns plist with :status :days-ahead :words-ahead :current-words :percentage :days-elapsed :days-remaining."
   (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
          (today (org-scribe-planner--get-today-date))
          (daily-counts (org-scribe-plan-daily-word-counts plan))
-         (cumulative-actual 0)
          (expected-by-today 0)
          (days-completed 0)
-         (expected-days 0))
+         (expected-days 0)
+         (days-elapsed 0)
+         (days-remaining 0))
 
-    ;; Calculate expected vs actual up to today
+    ;; Calculate total current words from ALL entries (not just up to today)
+    ;; This matches how the progress dashboard calculates current-words
+    (let ((counts-with-words (cl-remove-if-not
+                              (lambda (entry)
+                                (numberp (org-scribe-planner--get-entry-words entry)))
+                              daily-counts)))
+      (setq cumulative-actual (if counts-with-words
+                                 (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                                                  counts-with-words))
+                               0)))
+
+    ;; Calculate expected words and days elapsed up to today
     (dolist (day schedule)
       (let* ((date (plist-get day :date))
-             (is-spare (plist-get day :is-spare-day))
-             (entry (assoc date daily-counts))
-             (actual-words (when entry
-                            (org-scribe-planner--get-entry-words entry))))
+             (is-spare (plist-get day :is-spare-day)))
 
         ;; Stop when we reach future dates
         ;; Use (not (string< today date)) instead of string<= for Emacs 27 compatibility
         (when (not (string< today date))
+          ;; Count all days elapsed (including spare days)
+          (setq days-elapsed (1+ days-elapsed))
+
           ;; Add to expected cumulative (skip spare days)
           (unless is-spare
             (setq expected-by-today (+ expected-by-today (plist-get day :words)))
-            (setq expected-days (1+ expected-days)))
+            (setq expected-days (1+ expected-days))))))
 
-          ;; Add to actual cumulative if we have data
-          (when (numberp actual-words)
-            (setq cumulative-actual (+ cumulative-actual actual-words))
-            (unless is-spare
-              (setq days-completed (1+ days-completed)))))))
+    ;; Calculate remaining days (from today onwards, excluding spare days)
+    (dolist (day schedule)
+      (let* ((date (plist-get day :date))
+             (is-spare (plist-get day :is-spare-day)))
+        (when (and (string< today date)
+                  (not is-spare))
+          (setq days-remaining (1+ days-remaining)))))
 
-    (let* ((words-ahead (- cumulative-actual expected-by-today))
+    (let* ((total-words (org-scribe-plan-total-words plan))
+           (percentage (if (> total-words 0)
+                          (/ (* 100.0 cumulative-actual) total-words)
+                        0))
+           (words-ahead (- cumulative-actual expected-by-today))
            (daily-target (org-scribe-plan-daily-words plan))
            (days-ahead (if (> daily-target 0)
                          (/ (float words-ahead) daily-target)
@@ -240,7 +258,11 @@ Returns plist with :status :days-ahead :words-ahead."
             :days-ahead days-ahead
             :words-ahead words-ahead
             :cumulative-actual cumulative-actual
-            :expected-by-today expected-by-today))))
+            :current-words cumulative-actual
+            :expected-by-today expected-by-today
+            :percentage percentage
+            :days-elapsed days-elapsed
+            :days-remaining days-remaining))))
 
 ;;; Main Dashboard Function
 
@@ -391,6 +413,7 @@ Returns plist with :status :days-ahead :words-ahead."
     (define-key map (kbd "r") #'org-scribe-planner-dashboard-refresh)
     (define-key map (kbd "c") #'org-scribe-planner-show-current-plan)
     (define-key map (kbd "D") #'org-scribe-planner-dashboards-menu)
+    (define-key map (kbd "m") #'org-scribe-planner-show-multi-metric-dashboard)
     (define-key map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
     (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
     (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
@@ -400,6 +423,7 @@ Returns plist with :status :days-ahead :words-ahead."
     (define-key map (kbd "P") #'org-scribe-planner-show-performance-analytics)
     (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
     (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
+    (define-key map (kbd "s") #'org-scribe-planner-show-split-dashboards)
     (define-key map (kbd "?") #'describe-mode)
     map)
   "Keymap for `org-scribe-planner-dashboard-mode'.")
@@ -427,6 +451,8 @@ Returns plist with :status :days-ahead :words-ahead."
       (org-scribe-planner-show-velocity-trends))
      ((string= buffer-name "*Performance Analytics*")
       (org-scribe-planner-show-performance-analytics))
+     ((string= buffer-name "*Multi-Metric Dashboard*")
+      (org-scribe-planner-show-multi-metric-dashboard))
      ((string= buffer-name "*Writing Heatmap*")
       (org-scribe-planner-show-heatmap))
      (t
@@ -2033,6 +2059,287 @@ Shows daily word counts over time with a 7-day moving average."
             (org-scribe-planner-dashboard-mode)
             (display-buffer (current-buffer))))))))
 
+;;; Multi-Metric Dashboard
+
+;;;###autoload
+(defun org-scribe-planner-show-multi-metric-dashboard ()
+  "Display comprehensive multi-metric dashboard combining key metrics.
+Shows progress, velocity, performance, and projections in one unified view."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             ;; Gather all metrics
+             (position (org-scribe-planner--calculate-schedule-position plan))
+             (velocity (org-scribe-planner--calculate-velocity plan))
+             (multi-vel (or (org-scribe-planner--calculate-multi-window-velocity plan)
+                           (list :7-day 0 :14-day 0 :30-day 0 :overall 0
+                                 :total-days 0 :trend-7 'unknown
+                                 :velocity-change 0 :acceleration nil :deceleration nil)))
+             (required-vel (org-scribe-planner--calculate-required-velocity plan))
+             (consistency (org-scribe-planner--calculate-consistency-score plan))
+             (achievement (org-scribe-planner--calculate-target-achievement-rate plan))
+             (momentum (or (org-scribe-planner--calculate-momentum-score plan) 0))
+             (streak (org-scribe-planner--calculate-current-streak plan))
+             (dow-stats (org-scribe-planner--calculate-day-of-week-stats plan))
+             ;; Plan info
+             (total-words (org-scribe-plan-total-words plan))
+             (current-words (plist-get position :current-words))
+             (progress-pct (plist-get position :percentage))
+             (days-elapsed (plist-get position :days-elapsed))
+             (days-remaining (plist-get position :days-remaining))
+             (status (plist-get position :status)))
+
+        (with-current-buffer (get-buffer-create "*Multi-Metric Dashboard*")
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize "MULTI-METRIC DASHBOARD\n"
+                              'face '(:weight bold :height 1.3)))
+            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                              'face 'org-level-1))
+            (insert (make-string 90 ?═) "\n\n")
+
+            ;; Section 1: Quick Stats Overview
+            (insert (propertize "📊 OVERVIEW\n" 'face '(:weight bold :height 1.1)))
+            (insert (make-string 90 ?─) "\n\n")
+
+            ;; Row 1: Progress | Status | Days
+            (insert (format "Progress: %d%%%% (%s / %s)  Status: %s  Days: %d elapsed / %d left\n"
+                          (round (or progress-pct 0))
+                          (org-scribe-planner--format-number (or current-words 0))
+                          (org-scribe-planner--format-number (or total-words 0))
+                          (propertize (upcase (symbol-name (or status 'unknown)))
+                                    'face (if (eq status 'ahead) 'org-done 'org-warning))
+                          (or days-elapsed 0)
+                          (or days-remaining 0)))
+
+            ;; Progress bar
+            (insert "  ")
+            (insert (org-scribe-planner--ascii-progress-bar (or progress-pct 0) 84))
+            (insert "\n\n")
+
+            ;; Row 2: Velocity metrics
+            (insert (format "Velocity (7d): %.0f w/d  Required: %.0f w/d  Momentum: %d/100\n"
+                          (or (plist-get multi-vel :7-day) 0)
+                          (or (plist-get required-vel :required-velocity) 0)
+                          (or momentum 0)))
+
+            ;; Row 3: Performance metrics
+            (insert (format "Consistency: %d%%%%  Achievement: %.1f%%%%  Streak: %d days\n"
+                          (or (plist-get consistency :score) 0)
+                          (or (plist-get achievement :rate) 0)
+                          (or (plist-get streak :current) 0)))
+
+            (insert "\n" (make-string 90 ?─) "\n\n")
+
+            ;; Section 2: Velocity Analysis
+            (insert (propertize "🚀 VELOCITY TRENDS\n" 'face '(:weight bold :height 1.1)))
+            (insert (make-string 90 ?─) "\n\n")
+
+            (let* ((avg-7 (or (plist-get multi-vel :7-day) 0))
+                   (avg-14 (or (plist-get multi-vel :14-day) 0))
+                   (avg-30 (or (plist-get multi-vel :30-day) 0))
+                   (overall (or (plist-get multi-vel :overall) 0))
+                   (planned (or (org-scribe-plan-daily-words plan) 1))
+                   (is-accel (plist-get multi-vel :acceleration))
+                   (is-decel (plist-get multi-vel :deceleration))
+                   (trend-icon (cond (is-accel "↗") (is-decel "↘") (t "→")))
+                   (trend-label (cond (is-accel "ACCELERATING")
+                                     (is-decel "DECELERATING")
+                                     (t "STEADY")))
+                   (trend-face (cond (is-accel 'org-done)
+                                    (is-decel 'org-warning)
+                                    (t 'org-scheduled)))
+                   (max-val (max avg-7 avg-14 avg-30 overall planned 1)))
+
+              (insert (format "  Trend: %s  |  Target: %s words/day\n\n"
+                            (propertize (format "%s %s" trend-label trend-icon)
+                                      'face trend-face)
+                            (org-scribe-planner--format-number planned)))
+
+              ;; Velocity bars
+              (insert (format "  7-day:   %-50s %.0f w/d\n"
+                            (propertize (make-string (max 0 (round (* 45 (/ (float avg-7) max-val)))) ?█)
+                                      'face 'org-done)
+                            avg-7))
+              (insert (format "  14-day:  %-50s %.0f w/d\n"
+                            (propertize (make-string (max 0 (round (* 45 (/ (float avg-14) max-val)))) ?█)
+                                      'face 'org-scheduled)
+                            avg-14))
+              (insert (format "  30-day:  %-50s %.0f w/d\n"
+                            (propertize (make-string (max 0 (round (* 45 (/ (float avg-30) max-val)))) ?█)
+                                      'face 'org-warning)
+                            avg-30))
+              (insert (format "  Target:  %s\n"
+                            (propertize (make-string (max 0 (round (* 45 (/ (float planned) max-val)))) ?-)
+                                      'face 'shadow))))
+
+            (insert "\n" (make-string 90 ?─) "\n\n")
+
+            ;; Section 3: Performance Metrics
+            (insert (propertize "🎯 PERFORMANCE METRICS\n" 'face '(:weight bold :height 1.1)))
+            (insert (make-string 90 ?─) "\n\n")
+
+            (let ((col-width 44))
+              ;; Consistency
+              (insert (format "  Consistency: %s (%d/%d days)  "
+                            (propertize (format "%d%%%%" (or (plist-get consistency :score) 0))
+                                      'face (if (>= (or (plist-get consistency :score) 0) 80)
+                                              'org-done
+                                            'org-warning))
+                            (or (plist-get consistency :days-logged) 0)
+                            (or (plist-get consistency :working-days) 0)))
+
+              ;; Achievement
+              (insert (format "Achievement: %s (%d days met target)\n"
+                            (propertize (format "%.1f%%%%" (or (plist-get achievement :rate) 0))
+                                      'face (if (>= (or (plist-get achievement :rate) 0) 70)
+                                              'org-done
+                                            'org-warning))
+                            (or (plist-get achievement :days-met) 0)))
+
+              ;; Streaks
+              (insert (format "  Current Streak: %s  "
+                            (propertize (format "%d days" (or (plist-get streak :current) 0))
+                                      'face (if (> (or (plist-get streak :current) 0) 0)
+                                              'org-done
+                                            'shadow))))
+
+              ;; Longest streak
+              (insert (format "Longest Streak: %d days\n"
+                            (or (plist-get streak :longest) 0))))
+
+            (insert "\n" (make-string 90 ?─) "\n\n")
+
+            ;; Section 4: Day of Week Performance
+            (insert (propertize "📅 BEST PERFORMING DAYS\n" 'face '(:weight bold :height 1.1)))
+            (insert (make-string 90 ?─) "\n\n")
+
+            (let* ((days-with-data (cl-remove-if
+                                   (lambda (entry)
+                                     (= 0 (plist-get (cdr entry) :count)))
+                                   dow-stats))
+                   (sorted-days (sort (copy-sequence days-with-data)
+                                     (lambda (a b)
+                                       (> (plist-get (cdr a) :average)
+                                          (plist-get (cdr b) :average)))))
+                   (top-3 (cl-subseq sorted-days 0 (min 3 (length sorted-days)))))
+
+              (if top-3
+                  (let ((rank 1))
+                    (dolist (entry top-3)
+                      (let* ((data (cdr entry))
+                             (day-name (plist-get data :day-name))
+                             (average (plist-get data :average))
+                             (count (plist-get data :count))
+                             (medal (cond ((= rank 1) "🥇")
+                                         ((= rank 2) "🥈")
+                                         ((= rank 3) "🥉")
+                                         (t "  "))))
+                        (insert (format "  %s %-12s %.0f words/day (%d sessions)\n"
+                                      medal day-name average count))
+                        (setq rank (1+ rank)))))
+                (insert "  No data available yet\n")))
+
+            (insert "\n" (make-string 90 ?─) "\n\n")
+
+            ;; Section 5: Completion Projection
+            (insert (propertize "🏁 COMPLETION PROJECTION\n" 'face '(:weight bold :height 1.1)))
+            (insert (make-string 90 ?─) "\n\n")
+
+            (let* ((required (or (plist-get required-vel :required-velocity) 0))
+                   (current (or (plist-get required-vel :current-velocity) 0))
+                   (remaining-words (or (plist-get required-vel :remaining-words) 0))
+                   (remaining-days (or (plist-get required-vel :remaining-days) 0))
+                   (feasible (plist-get required-vel :feasible))
+                   (projected-date (plist-get velocity :projected-date))
+                   (planned-end (org-scribe-plan-end-date plan))
+                   (col-width 44))
+
+              (insert (format "  Remaining: %s words    Working days left: %d\n"
+                            (org-scribe-planner--format-number remaining-words)
+                            remaining-days))
+
+              (insert (format "  Required velocity: %s w/d    Current velocity: %.0f w/d\n"
+                            (propertize (format "%.0f" required)
+                                      'face (if feasible 'org-done 'org-warning))
+                            current))
+
+              (when projected-date
+                (insert "\n")
+                (insert (format "  Projected finish: %s    Planned finish: %s\n"
+                              projected-date
+                              planned-end))
+
+                (let ((on-track (string< projected-date planned-end)))
+                  (insert (format "  Status: %s\n"
+                                (propertize (if on-track "ON TRACK ✓" "BEHIND SCHEDULE ⚠")
+                                          'face (if on-track 'org-done 'org-warning)))))))
+
+            (insert "\n" (make-string 90 ?═) "\n\n")
+
+            ;; Navigation help
+            (insert (propertize "QUICK NAVIGATION\n" 'face 'org-level-2))
+            (insert "  p - Progress Dashboard    b - Burndown Chart       g - Cumulative Progress\n")
+            (insert "  v - Velocity Statistics   V - Velocity Chart       t - Velocity Trends\n")
+            (insert "  P - Performance Analytics h - Consistency Heatmap  D - Dashboard Menu\n")
+            (insert "  a - Show All Dashboards   r - Refresh              q - Quit\n")
+            (insert "\n")
+            (insert (propertize "Press any key above to view detailed dashboard\n"
+                              'face 'shadow)))
+
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
+
+;;;###autoload
+(defun org-scribe-planner-show-split-dashboards ()
+  "Display multiple dashboards in split windows for comprehensive overview.
+Shows progress, velocity, and performance dashboards side by side."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      ;; Delete other windows to get a clean slate
+      (delete-other-windows)
+
+      ;; Create a 2x2 grid layout
+      ;; Top half: Progress Dashboard (left) | Velocity Trends (right)
+      ;; Bottom half: Performance Analytics (left) | Velocity Chart (right)
+
+      ;; Split into top and bottom
+      (split-window-below)
+
+      ;; Work on top window - split into left and right
+      (select-window (frame-first-window))
+      (split-window-right)
+
+      ;; Top-left: Progress Dashboard
+      (select-window (frame-first-window))
+      (org-scribe-planner-show-progress-dashboard)
+
+      ;; Top-right: Velocity Trends
+      (other-window 1)
+      (org-scribe-planner-show-velocity-trends)
+
+      ;; Work on bottom window - split into left and right
+      (other-window 1)
+      (split-window-right)
+
+      ;; Bottom-left: Performance Analytics
+      (org-scribe-planner-show-performance-analytics)
+
+      ;; Bottom-right: Velocity Chart
+      (other-window 1)
+      (org-scribe-planner-show-velocity-chart)
+
+      ;; Balance windows for equal sizing
+      (balance-windows)
+
+      ;; Return to first window
+      (select-window (frame-first-window))
+
+      (message "Split dashboard view active. Use C-x o to navigate windows, C-x 1 to close."))))
+
 ;;; Consistency Heatmap
 
 ;;;###autoload
@@ -2140,7 +2447,8 @@ Shows daily word counts over time with a 7-day moving average."
   (interactive)
   (let ((choice (completing-read
                  "Select dashboard: "
-                 '("Progress Dashboard"
+                 '("Multi-Metric Dashboard"
+                   "Progress Dashboard"
                    "Progress Dashboard (SVG)"
                    "Burndown Chart"
                    "Cumulative Progress"
@@ -2149,9 +2457,11 @@ Shows daily word counts over time with a 7-day moving average."
                    "Velocity Trend Analysis"
                    "Performance Analytics"
                    "Consistency Heatmap"
+                   "Split Dashboard View"
                    "Show All Dashboards")
                  nil t)))
     (pcase choice
+      ("Multi-Metric Dashboard" (org-scribe-planner-show-multi-metric-dashboard))
       ("Progress Dashboard" (org-scribe-planner-show-progress-dashboard))
       ("Progress Dashboard (SVG)" (org-scribe-planner-show-progress-dashboard-svg))
       ("Burndown Chart" (org-scribe-planner-show-burndown))
@@ -2161,6 +2471,7 @@ Shows daily word counts over time with a 7-day moving average."
       ("Velocity Trend Analysis" (org-scribe-planner-show-velocity-trends))
       ("Performance Analytics" (org-scribe-planner-show-performance-analytics))
       ("Consistency Heatmap" (org-scribe-planner-show-heatmap))
+      ("Split Dashboard View" (org-scribe-planner-show-split-dashboards))
       ("Show All Dashboards" (org-scribe-planner-show-all-dashboards)))))
 
 ;;;###autoload

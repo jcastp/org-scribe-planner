@@ -51,6 +51,10 @@
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-performance-analytics
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-multi-metric-dashboard
+                  "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-show-split-dashboards
+                  "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-show-heatmap
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-dashboards-menu
@@ -1233,6 +1237,7 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "d") #'org-scribe-planner-update-daily-word-count)
 (define-key org-scribe-planner-calendar-mode-map (kbd "a") #'org-scribe-planner-adjust-remaining-plan)
 (define-key org-scribe-planner-calendar-mode-map (kbd "D") #'org-scribe-planner-dashboards-menu)
+(define-key org-scribe-planner-calendar-mode-map (kbd "m") #'org-scribe-planner-show-multi-metric-dashboard)
 (define-key org-scribe-planner-calendar-mode-map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
 (define-key org-scribe-planner-calendar-mode-map (kbd "b") #'org-scribe-planner-show-burndown)
 (define-key org-scribe-planner-calendar-mode-map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
@@ -1240,6 +1245,7 @@ Optional FILEPATH shows the location of the plan file."
 (define-key org-scribe-planner-calendar-mode-map (kbd "V") #'org-scribe-planner-show-velocity-chart)
 (define-key org-scribe-planner-calendar-mode-map (kbd "t") #'org-scribe-planner-show-velocity-trends)
 (define-key org-scribe-planner-calendar-mode-map (kbd "P") #'org-scribe-planner-show-performance-analytics)
+(define-key org-scribe-planner-calendar-mode-map (kbd "s") #'org-scribe-planner-show-split-dashboards)
 (define-key org-scribe-planner-calendar-mode-map (kbd "h") #'org-scribe-planner-show-heatmap)
 
 ;;; Org-agenda Integration
