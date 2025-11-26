@@ -396,6 +396,7 @@ Returns plist with :status :days-ahead :words-ahead."
     (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
     (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
     (define-key map (kbd "V") #'org-scribe-planner-show-velocity-chart)
+    (define-key map (kbd "t") #'org-scribe-planner-show-velocity-trends)
     (define-key map (kbd "P") #'org-scribe-planner-show-performance-analytics)
     (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
     (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
@@ -422,6 +423,8 @@ Returns plist with :status :days-ahead :words-ahead."
       (org-scribe-planner-show-velocity))
      ((string= buffer-name "*Velocity Chart*")
       (org-scribe-planner-show-velocity-chart))
+     ((string= buffer-name "*Velocity Trend Analysis*")
+      (org-scribe-planner-show-velocity-trends))
      ((string= buffer-name "*Performance Analytics*")
       (org-scribe-planner-show-performance-analytics))
      ((string= buffer-name "*Writing Heatmap*")
@@ -1594,6 +1597,353 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
           (org-scribe-planner-dashboard-mode)
           (display-buffer (current-buffer)))))))
 
+;;; Velocity Trend Analysis Helper Functions
+
+(defun org-scribe-planner--calculate-multi-window-velocity (plan)
+  "Calculate velocity across multiple time windows for PLAN.
+Returns plist with :7-day :14-day :30-day :overall velocities and trend info."
+  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
+         (counts-with-words (cl-remove-if-not
+                            (lambda (entry)
+                              (numberp (org-scribe-planner--get-entry-words entry)))
+                            daily-counts))
+         (sorted-entries (sort (copy-sequence counts-with-words)
+                              (lambda (a b) (string< (car a) (car b)))))
+         (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
+         (total-days (length word-counts)))
+
+    (when (> total-days 0)
+      (let* ((overall-avg (/ (float (apply '+ word-counts)) total-days))
+             ;; Calculate 7-day average
+             (last-7 (last word-counts (min 7 total-days)))
+             (avg-7 (if last-7
+                       (/ (float (apply '+ last-7)) (length last-7))
+                     0))
+             ;; Calculate 14-day average
+             (last-14 (last word-counts (min 14 total-days)))
+             (avg-14 (if last-14
+                        (/ (float (apply '+ last-14)) (length last-14))
+                      0))
+             ;; Calculate 30-day average
+             (last-30 (last word-counts (min 30 total-days)))
+             (avg-30 (if last-30
+                        (/ (float (apply '+ last-30)) (length last-30))
+                      0))
+             ;; Determine trend (compare recent to overall)
+             (trend-7 (cond
+                      ((= overall-avg 0) 'unknown)
+                      ((> avg-7 (* 1.1 overall-avg)) 'accelerating)
+                      ((< avg-7 (* 0.9 overall-avg)) 'decelerating)
+                      (t 'steady)))
+             ;; Calculate velocity change rate (7-day vs 14-day)
+             (velocity-change (if (and (> avg-14 0) (> total-days 7))
+                                (/ (- avg-7 avg-14) avg-14)
+                              0)))
+
+        (list :7-day avg-7
+              :14-day avg-14
+              :30-day avg-30
+              :overall overall-avg
+              :total-days total-days
+              :trend-7 trend-7
+              :velocity-change velocity-change
+              :acceleration (> velocity-change 0.05)
+              :deceleration (< velocity-change -0.05))))))
+
+(defun org-scribe-planner--calculate-required-velocity (plan)
+  "Calculate required velocity to complete PLAN on time.
+Returns plist with :required-velocity :current-velocity :feasible :adjustment-needed."
+  (let* ((total-words (org-scribe-plan-total-words plan))
+         (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (counts-with-words (cl-remove-if-not
+                            (lambda (entry)
+                              (numberp (org-scribe-planner--get-entry-words entry)))
+                            daily-counts))
+         (current-words (if counts-with-words
+                           (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                                            counts-with-words))
+                         0))
+         (remaining-words (- total-words current-words))
+         (schedule (org-scribe-planner--generate-day-schedule plan))
+         (today (org-scribe-planner--get-today-date))
+         (remaining-days 0))
+
+    ;; Count remaining working days from today onwards
+    (dolist (day schedule)
+      (let ((date (plist-get day :date))
+            (is-spare (plist-get day :is-spare-day)))
+        (when (and (not (string< date today))
+                  (not is-spare))
+          (setq remaining-days (1+ remaining-days)))))
+
+    (let* ((required-velocity (if (> remaining-days 0)
+                                 (/ (float remaining-words) remaining-days)
+                               0))
+           (velocity (org-scribe-planner--calculate-velocity plan))
+           (current-velocity (plist-get velocity :recent))
+           (planned-velocity (org-scribe-plan-daily-words plan))
+           (feasible (or (<= required-velocity (* 1.5 planned-velocity))
+                        (<= required-velocity current-velocity)))
+           (adjustment-needed (- required-velocity current-velocity)))
+
+      (list :required-velocity required-velocity
+            :current-velocity current-velocity
+            :planned-velocity planned-velocity
+            :remaining-words remaining-words
+            :remaining-days remaining-days
+            :feasible feasible
+            :adjustment-needed adjustment-needed
+            :adjustment-percent (if (> current-velocity 0)
+                                   (* 100 (/ adjustment-needed current-velocity))
+                                 0)))))
+
+(defun org-scribe-planner--calculate-momentum-score (plan)
+  "Calculate momentum score for PLAN based on recent velocity trends.
+Returns a score from 0-100 indicating writing momentum."
+  (let* ((multi-vel (org-scribe-planner--calculate-multi-window-velocity plan))
+         (avg-7 (plist-get multi-vel :7-day))
+         (avg-14 (plist-get multi-vel :14-day))
+         (overall (plist-get multi-vel :overall))
+         (planned (org-scribe-plan-daily-words plan)))
+
+    (when (and avg-7 avg-14 overall)
+      (let* (;; Base score: how well are we doing vs plan?
+             (performance-score (if (> planned 0)
+                                   (min 100 (* 100 (/ avg-7 planned)))
+                                 50))
+             ;; Trend bonus: are we accelerating?
+             (trend-bonus (cond
+                          ((> avg-7 (* 1.2 overall)) 20)
+                          ((> avg-7 (* 1.1 overall)) 10)
+                          ((< avg-7 (* 0.8 overall)) -20)
+                          ((< avg-7 (* 0.9 overall)) -10)
+                          (t 0)))
+             ;; Consistency bonus: 7-day close to 14-day?
+             (consistency-bonus (if (and (> avg-14 0)
+                                        (< (abs (- avg-7 avg-14)) (* 0.2 avg-14)))
+                                   10
+                                 0))
+             (total-score (+ performance-score trend-bonus consistency-bonus)))
+
+        (max 0 (min 100 (round total-score)))))))
+
+;;; Velocity Trend Analysis Dashboard
+
+;;;###autoload
+(defun org-scribe-planner-show-velocity-trends ()
+  "Display comprehensive velocity trend analysis for the active plan.
+Shows multi-window averages, acceleration/deceleration, and projections."
+  (interactive)
+  (let ((current (org-scribe-planner--get-current-plan t)))
+    (when current
+      (let* ((plan (car current))
+             (multi-vel (org-scribe-planner--calculate-multi-window-velocity plan))
+             (required-vel (org-scribe-planner--calculate-required-velocity plan))
+             (momentum (org-scribe-planner--calculate-momentum-score plan))
+             (velocity (org-scribe-planner--calculate-velocity plan))
+             (position (org-scribe-planner--calculate-schedule-position plan)))
+
+        (with-current-buffer (get-buffer-create "*Velocity Trend Analysis*")
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (propertize "VELOCITY TREND ANALYSIS\n"
+                              'face '(:weight bold :height 1.2)))
+            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                              'face 'org-level-1))
+            (insert (make-string 80 ?═) "\n\n")
+
+            ;; Multi-Window Velocity Section
+            (insert (propertize "📊 Multi-Window Velocity Analysis\n" 'face 'org-level-2))
+            (insert "\n")
+
+            (let ((avg-7 (plist-get multi-vel :7-day))
+                  (avg-14 (plist-get multi-vel :14-day))
+                  (avg-30 (plist-get multi-vel :30-day))
+                  (overall (plist-get multi-vel :overall))
+                  (total-days (plist-get multi-vel :total-days))
+                  (planned (org-scribe-plan-daily-words plan)))
+
+              (insert (format "  Last 7 days:   %s words/day\n"
+                            (propertize (format "%.0f" avg-7)
+                                      'face (if (>= avg-7 planned) 'org-done 'org-warning))))
+              (insert (format "  Last 14 days:  %.0f words/day\n" avg-14))
+              (insert (format "  Last 30 days:  %.0f words/day\n" avg-30))
+              (insert (format "  Overall (%d days): %.0f words/day\n"
+                            total-days overall))
+              (insert (format "  Target:        %s words/day\n\n"
+                            (org-scribe-planner--format-number planned)))
+
+              ;; Visual comparison bars
+              (insert (propertize "  Visual Comparison:\n" 'face 'org-level-3))
+              (let ((max-val (max avg-7 avg-14 avg-30 overall planned)))
+                (insert (format "  7-day:  %s\n"
+                              (propertize (make-string (round (* 40 (/ avg-7 max-val))) ?█)
+                                        'face 'org-done)))
+                (insert (format "  14-day: %s\n"
+                              (propertize (make-string (round (* 40 (/ avg-14 max-val))) ?█)
+                                        'face 'org-scheduled)))
+                (insert (format "  30-day: %s\n"
+                              (propertize (make-string (round (* 40 (/ avg-30 max-val))) ?█)
+                                        'face 'org-warning)))
+                (insert (format "  Target: %s\n\n"
+                              (propertize (make-string (round (* 40 (/ planned max-val))) ?-)
+                                        'face 'shadow)))))
+
+            ;; Acceleration/Deceleration Section
+            (insert (propertize "🚀 Momentum Analysis\n" 'face 'org-level-2))
+            (let* ((vel-change (plist-get multi-vel :velocity-change))
+                   (is-accel (plist-get multi-vel :acceleration))
+                   (is-decel (plist-get multi-vel :deceleration))
+                   (trend (cond
+                          (is-accel (propertize "ACCELERATING ↗" 'face 'org-done))
+                          (is-decel (propertize "DECELERATING ↘" 'face 'org-warning))
+                          (t (propertize "STEADY →" 'face 'org-scheduled))))
+                   (momentum-face (cond
+                                  ((>= momentum 80) 'org-done)
+                                  ((>= momentum 60) 'org-scheduled)
+                                  (t 'org-warning))))
+
+              (insert (format "  Status: %s\n" trend))
+              (insert (format "  Velocity change (7d vs 14d): %s%.1f%%\n"
+                            (if (>= vel-change 0) "+" "")
+                            (* 100 vel-change)))
+              (insert (format "  Momentum score: %s/100\n"
+                            (propertize (format "%d" momentum) 'face momentum-face)))
+              (insert "  ")
+              (insert (org-scribe-planner--ascii-progress-bar momentum 50))
+              (insert "\n\n")
+
+              (insert (propertize "  Interpretation:\n" 'face 'org-level-3))
+              (cond
+               (is-accel
+                (insert "  ✓ You're building momentum! Recent output exceeds your average.\n")
+                (insert "    Keep up the excellent work.\n"))
+               (is-decel
+                (insert "  ⚠ Velocity is declining. Consider:\n")
+                (insert "    • Reviewing your writing schedule\n")
+                (insert "    • Taking a break to recharge\n")
+                (insert "    • Adjusting daily targets\n"))
+               (t
+                (insert "  → Maintaining steady pace. Consistent progress.\n")))
+              (insert "\n"))
+
+            (insert (make-string 80 ?─) "\n\n")
+
+            ;; Required Velocity Section
+            (insert (propertize "🎯 Completion Projection\n" 'face 'org-level-2))
+            (let* ((required (plist-get required-vel :required-velocity))
+                   (current (plist-get required-vel :current-velocity))
+                   (planned (plist-get required-vel :planned-velocity))
+                   (remaining-words (plist-get required-vel :remaining-words))
+                   (remaining-days (plist-get required-vel :remaining-days))
+                   (feasible (plist-get required-vel :feasible))
+                   (adjustment (plist-get required-vel :adjustment-needed))
+                   (adj-percent (plist-get required-vel :adjustment-percent))
+                   (projected-date (plist-get velocity :projected-date))
+                   (planned-end (org-scribe-plan-end-date plan)))
+
+              (insert (format "  Words remaining:     %s\n"
+                            (org-scribe-planner--format-number remaining-words)))
+              (insert (format "  Working days left:   %d\n\n" remaining-days))
+
+              (insert (format "  Required velocity:   %s words/day\n"
+                            (propertize (format "%.0f" required)
+                                      'face (if feasible 'org-done 'org-warning))))
+              (insert (format "  Current velocity:    %.0f words/day (7-day avg)\n"
+                            current))
+              (insert (format "  Planned velocity:    %d words/day\n\n"
+                            planned))
+
+              (insert (propertize "  Feasibility Analysis:\n" 'face 'org-level-3))
+              (if feasible
+                  (progn
+                    (insert (propertize "  ✓ On track to complete on time!\n" 'face 'org-done))
+                    (when (< required current)
+                      (insert (format "    You have a buffer of %.0f words/day.\n"
+                                    (- current required)))))
+                (progn
+                  (insert (propertize "  ⚠ Need to increase velocity to finish on time.\n"
+                                    'face 'org-warning))
+                  (insert (format "    Adjustment needed: %s%.0f words/day (%.1f%%)\n"
+                                (if (> adjustment 0) "+" "")
+                                adjustment
+                                adj-percent))))
+              (insert "\n")
+
+              (when projected-date
+                (insert (format "  Projected completion: %s\n" projected-date))
+                (insert (format "  Planned completion:   %s\n"
+                              planned-end))
+                (let ((status (if (string< projected-date planned-end)
+                                 (propertize "AHEAD" 'face 'org-done)
+                               (propertize "BEHIND" 'face 'org-warning))))
+                  (insert (format "  Status: %s\n" status))))
+              (insert "\n"))
+
+            (insert (make-string 80 ?─) "\n\n")
+
+            ;; Recommendations Section
+            (insert (propertize "💡 Recommendations\n" 'face 'org-level-2))
+            (let* ((is-accel (plist-get multi-vel :acceleration))
+                   (is-decel (plist-get multi-vel :deceleration))
+                   (adjustment (plist-get required-vel :adjustment-needed))
+                   (status (plist-get position :status)))
+
+              (cond
+               ;; Accelerating and ahead
+               ((and is-accel (eq status 'ahead))
+                (insert "  • Excellent progress! You're accelerating and ahead of schedule.\n")
+                (insert "  • Consider maintaining this pace or taking strategic breaks.\n")
+                (insert "  • You have room to handle unexpected interruptions.\n"))
+
+               ;; Accelerating but behind
+               ((and is-accel (eq status 'behind))
+                (insert "  • Good news: you're building momentum!\n")
+                (insert "  • Continue this acceleration to catch up to schedule.\n")
+                (insert (format "  • Need to sustain %.0f words/day to finish on time.\n"
+                              (plist-get required-vel :required-velocity))))
+
+               ;; Decelerating and ahead
+               ((and is-decel (eq status 'ahead))
+                (insert "  • You have a buffer but velocity is declining.\n")
+                (insert "  • Consider addressing the slowdown before it affects schedule.\n")
+                (insert "  • Review recent days for patterns or obstacles.\n"))
+
+               ;; Decelerating and behind
+               ((and is-decel (eq status 'behind))
+                (insert "  • ⚠ Critical: declining velocity while behind schedule.\n")
+                (insert "  • Immediate action needed to get back on track.\n")
+                (insert (format "  • Increase output by %.0f words/day.\n"
+                              (abs adjustment)))
+                (insert "  • Consider adjusting timeline or daily targets.\n"))
+
+               ;; Steady and ahead
+               ((and (not is-accel) (not is-decel) (eq status 'ahead))
+                (insert "  • Steady pace with positive buffer - well done!\n")
+                (insert "  • Maintain current velocity to finish ahead of schedule.\n")
+                (insert "  • Current approach is working well.\n"))
+
+               ;; Steady and behind
+               ((and (not is-accel) (not is-decel) (eq status 'behind))
+                (insert "  • Consistent pace but need to increase velocity.\n")
+                (insert (format "  • Boost daily output by %.0f words to catch up.\n"
+                              (abs adjustment)))
+                (insert "  • Consider extending writing sessions or reducing distractions.\n"))
+
+               (t
+                (insert "  • Continue monitoring velocity trends.\n")
+                (insert "  • Maintain focus on daily targets.\n")))
+
+              (insert "\n"))
+
+            (insert (make-string 80 ?═) "\n")
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow)))
+
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
+
 ;;; Velocity Chart (Chart.el Bar Chart)
 
 ;;;###autoload
@@ -1796,6 +2146,7 @@ Shows daily word counts over time with a 7-day moving average."
                    "Cumulative Progress"
                    "Velocity Statistics"
                    "Velocity Chart (Chart.el)"
+                   "Velocity Trend Analysis"
                    "Performance Analytics"
                    "Consistency Heatmap"
                    "Show All Dashboards")
@@ -1807,6 +2158,7 @@ Shows daily word counts over time with a 7-day moving average."
       ("Cumulative Progress" (org-scribe-planner-show-cumulative-progress))
       ("Velocity Statistics" (org-scribe-planner-show-velocity))
       ("Velocity Chart (Chart.el)" (org-scribe-planner-show-velocity-chart))
+      ("Velocity Trend Analysis" (org-scribe-planner-show-velocity-trends))
       ("Performance Analytics" (org-scribe-planner-show-performance-analytics))
       ("Consistency Heatmap" (org-scribe-planner-show-heatmap))
       ("Show All Dashboards" (org-scribe-planner-show-all-dashboards)))))
