@@ -617,9 +617,9 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
               (message "Added %s as spare day" date))))
 
          ((equal method "Add: Date range")
-          (let ((start (org-scribe-planner--read-date "Start date (YYYY-MM-DD)" nil t))
-                (end (when start
-                       (org-scribe-planner--read-date "End date (YYYY-MM-DD)" nil t))))
+          (let* ((start (org-scribe-planner--read-date "Start date (YYYY-MM-DD)" nil t))
+                 (end (when start
+                        (org-scribe-planner--read-date "End date (YYYY-MM-DD)" nil t))))
             (when (and start end)
               (let ((date-range (org-scribe-planner--generate-date-range start end)))
                 (setq spare-days (append spare-days date-range))
