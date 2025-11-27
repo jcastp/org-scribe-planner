@@ -293,11 +293,8 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
              (today-target (org-scribe-planner--get-today-target plan))
              (today-actual (org-scribe-planner--get-today-actual plan)))
 
-        (with-current-buffer (get-buffer-create "*Writing Dashboard*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-
-            ;; Header
+        (org-scribe-planner--with-dashboard-buffer "*Writing Dashboard*"
+          ;; Header
             (insert (propertize "WRITING PROGRESS DASHBOARD\n"
                               'face '(:weight bold :height 1.3)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
@@ -395,15 +392,28 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
                     (insert (format "  Projected finish: %s [%s]\n"
                                   projected status-indicator)))
                 (insert (propertize "  Projected finish: Insufficient data\n"
-                                  'face 'shadow))))
+                                  'face 'shadow)))))
 
-            (insert "\n" (make-string 70 ?═) "\n")
-            (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow)))
+          (insert "\n" (make-string 70 ?═) "\n")
+          (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow))))))
 
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+;;; Helper Macros
+
+(defmacro org-scribe-planner--with-dashboard-buffer (buffer-name &rest body)
+  "Create or reuse dashboard BUFFER-NAME, execute BODY, and display.
+BODY should insert content into the buffer. The buffer is automatically
+erased, put into `org-scribe-planner-dashboard-mode', positioned at the
+beginning, and displayed after BODY executes."
+  (declare (indent 1))
+  `(with-current-buffer (get-buffer-create ,buffer-name)
+     (let ((inhibit-read-only t))
+       (erase-buffer)
+       ,@body
+       (goto-char (point-min))
+       (org-scribe-planner-dashboard-mode)
+       (display-buffer (current-buffer))
+       (current-buffer))))
 
 ;;; Dashboard Mode
 
@@ -553,10 +563,8 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
         (setq data-points (nreverse data-points))
 
         ;; Render chart
-        (with-current-buffer (get-buffer-create "*Burndown Chart*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize "BURNDOWN CHART\n"
+        (org-scribe-planner--with-dashboard-buffer "*Burndown Chart*"
+          (insert (propertize "BURNDOWN CHART\n"
                               'face '(:weight bold :height 1.2)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                               'face 'org-level-1))
@@ -583,15 +591,11 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
             (insert (propertize "Interpretation:\n" 'face 'org-level-2))
             (insert "  • Actual below ideal = Ahead of schedule\n")
             (insert "  • Actual above ideal = Behind schedule\n")
-            (insert "  • Lines converging = Catching up\n")
-            (insert "  • Lines diverging = Falling further behind\n\n")
+          (insert "  • Lines converging = Catching up\n")
+          (insert "  • Lines diverging = Falling further behind\n\n")
 
-            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow)))
-
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+          (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow)))))))
 
 ;;;###autoload
 (defun org-scribe-planner-show-burndown (&optional force-ascii)
@@ -698,10 +702,8 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
             (if (org-scribe-planner--generate-gnuplot-burndown plan output-file)
                 (progn
                   ;; Display image in buffer
-                  (with-current-buffer (get-buffer-create "*Burndown Chart (Gnuplot)*")
-                    (let ((inhibit-read-only t))
-                      (erase-buffer)
-                      (insert (propertize "BURNDOWN CHART (GNUPLOT)\n"
+                  (org-scribe-planner--with-dashboard-buffer "*Burndown Chart (Gnuplot)*"
+                    (insert (propertize "BURNDOWN CHART (GNUPLOT)\n"
                                         'face '(:weight bold :height 1.2)))
                       (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                                         'face 'org-level-1))
@@ -722,13 +724,9 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
                       (insert "  • Lines converging = Catching up\n")
                       (insert "  • Lines diverging = Falling further behind\n\n")
 
-                      (insert (make-string 75 ?═) "\n")
-                      (insert (propertize "Press 'q' to close | 'r' to refresh | 's' to save\n"
-                                        'face 'shadow)))
-
-                    (goto-char (point-min))
-                    (org-scribe-planner-dashboard-mode)
-                    (display-buffer (current-buffer))))
+                    (insert (make-string 75 ?═) "\n")
+                    (insert (propertize "Press 'q' to close | 'r' to refresh | 's' to save\n"
+                                      'face 'shadow))))
               (message "Failed to generate gnuplot chart, falling back to ASCII")
               (org-scribe-planner-show-burndown-ascii))
           (message "Gnuplot not found, falling back to ASCII version")
@@ -831,10 +829,8 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
                          (status (plist-get position :status)))
 
                     ;; Display image in buffer
-                    (with-current-buffer (get-buffer-create "*Cumulative Progress*")
-                      (let ((inhibit-read-only t))
-                        (erase-buffer)
-                        (insert (propertize "CUMULATIVE PROGRESS CHART\n"
+                    (org-scribe-planner--with-dashboard-buffer "*Cumulative Progress*"
+                      (insert (propertize "CUMULATIVE PROGRESS CHART\n"
                                           'face '(:weight bold :height 1.2)))
                         (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                                           'face 'org-level-1))
@@ -872,15 +868,11 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
                         (insert "  • Gap widening = Building momentum\n")
                         (insert "  • Gap narrowing = Losing momentum or catching up\n\n")
 
-                        (insert (make-string 75 ?═) "\n")
-                        (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
-                                          'face 'shadow)))
-
-                      (goto-char (point-min))
-                      (org-scribe-planner-dashboard-mode)
-                      (display-buffer (current-buffer)))))
+                      (insert (make-string 75 ?═) "\n")
+                      (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
+                                        'face 'shadow))))
               (message "Failed to generate cumulative progress chart"))
-          (message "Gnuplot not available. Install gnuplot to use this feature."))))))
+          (message "Gnuplot not available. Install gnuplot to use this feature.")))))))
 
 ;;; SVG Progress Indicators
 
@@ -1080,11 +1072,8 @@ WIDTH and HEIGHT are dimensions in pixels."
                (today-target (org-scribe-planner--get-today-target plan))
                (today-actual (org-scribe-planner--get-today-actual plan)))
 
-          (with-current-buffer (get-buffer-create "*Writing Dashboard (SVG)*")
-            (let ((inhibit-read-only t))
-              (erase-buffer)
-
-              ;; Header
+          (org-scribe-planner--with-dashboard-buffer "*Writing Dashboard (SVG)*"
+            ;; Header
               (insert (propertize "WRITING PROGRESS DASHBOARD\n"
                                 'face '(:weight bold :height 1.3)))
               (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
@@ -1165,13 +1154,9 @@ WIDTH and HEIGHT are dimensions in pixels."
                             (org-scribe-planner--format-trend
                              (plist-get velocity :trend))))
 
-              (insert (make-string 70 ?═) "\n")
-              (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
-                                'face 'shadow)))
-
-            (goto-char (point-min))
-            (org-scribe-planner-dashboard-mode)
-            (display-buffer (current-buffer))))))))
+            (insert (make-string 70 ?═) "\n")
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
+                              'face 'shadow))))))))
 
 ;;; Helper Functions - Moving Average and Date Formatting
 
@@ -1217,10 +1202,8 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
              (target (org-scribe-plan-daily-words plan))
              (velocity (org-scribe-planner--calculate-velocity plan)))
 
-        (with-current-buffer (get-buffer-create "*Velocity Statistics*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize "VELOCITY STATISTICS\n"
+        (org-scribe-planner--with-dashboard-buffer "*Velocity Statistics*"
+          (insert (propertize "VELOCITY STATISTICS\n"
                               'face '(:weight bold :height 1.2)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                               'face 'org-level-1))
@@ -1308,13 +1291,9 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
               (insert "  " (propertize "█" 'face 'org-warning)
                      " <75% of target\n"))
 
-            (insert "\n" (make-string 70 ?═) "\n")
-            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow)))
-
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+          (insert "\n" (make-string 70 ?═) "\n")
+          (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow)))))))
 
 ;;; Performance Analytics Helper Functions
 
@@ -1461,10 +1440,8 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
              (velocity (org-scribe-planner--calculate-velocity plan))
              (streak (org-scribe-planner--calculate-current-streak plan)))
 
-        (with-current-buffer (get-buffer-create "*Performance Analytics*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize "PERFORMANCE ANALYTICS\n"
+        (org-scribe-planner--with-dashboard-buffer "*Performance Analytics*"
+          (insert (propertize "PERFORMANCE ANALYTICS\n"
                               'face '(:weight bold :height 1.2)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                               'face 'org-level-1))
@@ -1615,13 +1592,9 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
                                           'face 'org-warning)
                                 (plist-get (cdr worst-entry) :average))))))
 
-            (insert "\n" (make-string 80 ?═) "\n")
-            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow)))
-
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+          (insert "\n" (make-string 80 ?═) "\n")
+          (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow)))))))
 
 ;;; Velocity Trend Analysis Helper Functions
 
@@ -1769,10 +1742,8 @@ Shows multi-window averages, acceleration/deceleration, and projections."
              (velocity (org-scribe-planner--calculate-velocity plan))
              (position (org-scribe-planner--calculate-schedule-position plan)))
 
-        (with-current-buffer (get-buffer-create "*Velocity Trend Analysis*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize "VELOCITY TREND ANALYSIS\n"
+        (org-scribe-planner--with-dashboard-buffer "*Velocity Trend Analysis*"
+          (insert (propertize "VELOCITY TREND ANALYSIS\n"
                               'face '(:weight bold :height 1.2)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                               'face 'org-level-1))
@@ -1962,13 +1933,9 @@ Shows multi-window averages, acceleration/deceleration, and projections."
 
               (insert "\n"))
 
-            (insert (make-string 80 ?═) "\n")
-            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow)))
-
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+          (insert (make-string 80 ?═) "\n")
+          (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow)))))))
 
 ;;; Velocity Chart (Chart.el Bar Chart)
 
@@ -1994,10 +1961,8 @@ Shows daily word counts over time with a 7-day moving average."
         (if (< (length word-counts) 1)
             (message "No word count data available to chart")
 
-          (with-current-buffer (get-buffer-create "*Velocity Chart*")
-            (let ((inhibit-read-only t))
-              (erase-buffer)
-              (insert (propertize "VELOCITY BAR CHART\n"
+          (org-scribe-planner--with-dashboard-buffer "*Velocity Chart*"
+            (insert (propertize "VELOCITY BAR CHART\n"
                                 'face '(:weight bold :height 1.2)))
               (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                                 'face 'org-level-1))
@@ -2051,13 +2016,9 @@ Shows daily word counts over time with a 7-day moving average."
               (insert "  • Increasing heights = building momentum\n")
               (insert "  • Gaps = days without logged data\n\n")
 
-              (insert (make-string 80 ?═) "\n")
-              (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                                'face 'shadow)))
-
-            (goto-char (point-min))
-            (org-scribe-planner-dashboard-mode)
-            (display-buffer (current-buffer))))))))
+            (insert (make-string 80 ?═) "\n")
+            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow))))))))
 
 ;;; Multi-Metric Dashboard
 
@@ -2090,10 +2051,8 @@ Shows progress, velocity, performance, and projections in one unified view."
              (days-remaining (plist-get position :days-remaining))
              (status (plist-get position :status)))
 
-        (with-current-buffer (get-buffer-create "*Multi-Metric Dashboard*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize "MULTI-METRIC DASHBOARD\n"
+        (org-scribe-planner--with-dashboard-buffer "*Multi-Metric Dashboard*"
+          (insert (propertize "MULTI-METRIC DASHBOARD\n"
                               'face '(:weight bold :height 1.3)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                               'face 'org-level-1))
@@ -2285,12 +2244,8 @@ Shows progress, velocity, performance, and projections in one unified view."
             (insert "  P - Performance Analytics h - Consistency Heatmap  D - Dashboard Menu\n")
             (insert "  a - Show All Dashboards   r - Refresh              q - Quit\n")
             (insert "\n")
-            (insert (propertize "Press any key above to view detailed dashboard\n"
-                              'face 'shadow)))
-
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+          (insert (propertize "Press any key above to view detailed dashboard\n"
+                            'face 'shadow)))))))
 
 ;;;###autoload
 (defun org-scribe-planner-show-split-dashboards ()
@@ -2352,10 +2307,8 @@ Shows progress, velocity, and performance dashboards side by side."
              (schedule (org-scribe-planner--generate-day-schedule plan))
              (daily-counts (org-scribe-plan-daily-word-counts plan)))
 
-        (with-current-buffer (get-buffer-create "*Writing Heatmap*")
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (insert (propertize "WRITING CONSISTENCY HEATMAP\n"
+        (org-scribe-planner--with-dashboard-buffer "*Writing Heatmap*"
+          (insert (propertize "WRITING CONSISTENCY HEATMAP\n"
                               'face '(:weight bold :height 1.2)))
             (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
                               'face 'org-level-1))
@@ -2431,13 +2384,9 @@ Shows progress, velocity, and performance dashboards side by side."
             (insert "  • Empty squares = Missing data (need to log)\n")
             (insert "  • Vertical patterns = Identify best/worst days of week\n\n")
 
-            (insert (make-string 70 ?═) "\n")
-            (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow)))
-
-          (goto-char (point-min))
-          (org-scribe-planner-dashboard-mode)
-          (display-buffer (current-buffer)))))))
+          (insert (make-string 70 ?═) "\n")
+          (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow)))))))
 
 ;;; Dashboard Menu
 
