@@ -270,10 +270,8 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
 (defun org-scribe-planner-show-progress-dashboard ()
   "Display a comprehensive progress dashboard for the active plan."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (total (org-scribe-plan-total-words plan))
+  (org-scribe-planner--with-current-plan (plan _)
+    (let* ((total (org-scribe-plan-total-words plan))
              (daily-counts (org-scribe-plan-daily-word-counts plan))
              (counts-with-words (cl-remove-if-not
                                 (lambda (entry)
@@ -394,9 +392,9 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
                 (insert (propertize "  Projected finish: Insufficient data\n"
                                   'face 'shadow)))))
 
-          (insert "\n" (make-string 70 ?═) "\n")
-          (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                            'face 'shadow))))))
+        (insert "\n" (make-string 70 ?═) "\n")
+        (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                          'face 'shadow)))))
 
 ;;; Helper Macros
 
@@ -414,6 +412,22 @@ beginning, and displayed after BODY executes."
        (org-scribe-planner-dashboard-mode)
        (display-buffer (current-buffer))
        (current-buffer))))
+
+(defmacro org-scribe-planner--with-current-plan (varlist &rest body)
+  "Execute BODY with variables from VARLIST bound to current plan and file.
+VARLIST should be (PLAN-VAR FILE-VAR).
+If no current plan is available, display a message and return nil."
+  (declare (indent 1))
+  (let ((plan-var (car varlist))
+        (file-var (cadr varlist))
+        (current-sym (gensym "current")))
+    `(let ((,current-sym (org-scribe-planner--get-current-plan t)))
+       (if ,current-sym
+           (let ((,plan-var (car ,current-sym))
+                 (,file-var (cdr ,current-sym)))
+             ,@body)
+         (message "No current plan available")
+         nil))))
 
 ;;; Dashboard Mode
 
@@ -532,10 +546,9 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
 
 (defun org-scribe-planner-show-burndown-ascii-internal ()
   "Display ASCII burndown chart for the active plan (internal function)."
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (schedule (org-scribe-planner--generate-day-schedule plan))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (schedule (org-scribe-planner--generate-day-schedule plan))
              (total (org-scribe-plan-total-words plan))
              (daily-counts (org-scribe-plan-daily-word-counts plan))
              (chart-width 70)
@@ -595,7 +608,7 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
           (insert "  • Lines diverging = Falling further behind\n\n")
 
           (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                            'face 'shadow)))))))
+                            'face 'shadow))))))
 
 ;;;###autoload
 (defun org-scribe-planner-show-burndown (&optional force-ascii)
@@ -693,10 +706,9 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
 (defun org-scribe-planner-show-burndown-gnuplot ()
   "Display burndown chart using gnuplot (high quality)."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (output-file (make-temp-file "org-scribe-burndown" nil ".png")))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (output-file (make-temp-file "org-scribe-burndown" nil ".png")))
 
         (if (org-scribe-planner--gnuplot-available-p)
             (if (org-scribe-planner--generate-gnuplot-burndown plan output-file)
@@ -730,7 +742,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
               (message "Failed to generate gnuplot chart, falling back to ASCII")
               (org-scribe-planner-show-burndown-ascii))
           (message "Gnuplot not found, falling back to ASCII version")
-          (org-scribe-planner-show-burndown-ascii))))))
+          (org-scribe-planner-show-burndown-ascii)))))
 
 ;;; Gnuplot Cumulative Progress Graph
 
@@ -813,10 +825,9 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
 (defun org-scribe-planner-show-cumulative-progress ()
   "Display cumulative progress chart using gnuplot."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (output-file (make-temp-file "org-scribe-cumulative" nil ".png")))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (output-file (make-temp-file "org-scribe-cumulative" nil ".png")))
 
         (if (org-scribe-planner--gnuplot-available-p)
             (if (org-scribe-planner--generate-gnuplot-cumulative plan output-file)
@@ -872,7 +883,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
                       (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
                                         'face 'shadow))))
               (message "Failed to generate cumulative progress chart"))
-          (message "Gnuplot not available. Install gnuplot to use this feature.")))))))
+          (message "Gnuplot not available. Install gnuplot to use this feature."))))))
 
 ;;; SVG Progress Indicators
 
@@ -1050,10 +1061,10 @@ WIDTH and HEIGHT are dimensions in pixels."
         (message "SVG not available, showing standard dashboard")
         (org-scribe-planner-show-progress-dashboard))
 
-    (let ((current (org-scribe-planner--get-current-plan t)))
-      (when current
-        (let* ((plan (car current))
-               (total (org-scribe-plan-total-words plan))
+    (org-scribe-planner--with-current-plan (plan _)
+
+
+      (let* (               (total (org-scribe-plan-total-words plan))
                (daily-counts (org-scribe-plan-daily-word-counts plan))
                (counts-with-words (cl-remove-if-not
                                   (lambda (entry)
@@ -1156,7 +1167,7 @@ WIDTH and HEIGHT are dimensions in pixels."
 
             (insert (make-string 70 ?═) "\n")
             (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to calendar\n"
-                              'face 'shadow))))))))
+                              'face 'shadow)))))))
 
 ;;; Helper Functions - Moving Average and Date Formatting
 
@@ -1188,10 +1199,9 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
 (defun org-scribe-planner-show-velocity ()
   "Display velocity statistics and trends for the active plan."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (daily-counts (org-scribe-plan-daily-word-counts plan))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (daily-counts (org-scribe-plan-daily-word-counts plan))
              (counts-with-words (cl-remove-if-not
                                 (lambda (entry)
                                   (numberp (org-scribe-planner--get-entry-words entry)))
@@ -1293,7 +1303,7 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
 
           (insert "\n" (make-string 70 ?═) "\n")
           (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                            'face 'shadow)))))))
+                            'face 'shadow))))))
 
 ;;; Performance Analytics Helper Functions
 
@@ -1430,10 +1440,9 @@ Returns actual velocity / planned velocity as a percentage."
   "Display comprehensive performance analytics for the active plan.
 Shows day-of-week patterns, consistency scores, and target achievement rates."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (dow-stats (org-scribe-planner--calculate-day-of-week-stats plan))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (dow-stats (org-scribe-planner--calculate-day-of-week-stats plan))
              (consistency (org-scribe-planner--calculate-consistency-score plan))
              (achievement (org-scribe-planner--calculate-target-achievement-rate plan))
              (efficiency (org-scribe-planner--calculate-efficiency-ratio plan))
@@ -1594,7 +1603,7 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
 
           (insert "\n" (make-string 80 ?═) "\n")
           (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                            'face 'shadow)))))))
+                            'face 'shadow))))))
 
 ;;; Velocity Trend Analysis Helper Functions
 
@@ -1733,10 +1742,9 @@ Returns a score from 0-100 indicating writing momentum."
   "Display comprehensive velocity trend analysis for the active plan.
 Shows multi-window averages, acceleration/deceleration, and projections."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (multi-vel (org-scribe-planner--calculate-multi-window-velocity plan))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (multi-vel (org-scribe-planner--calculate-multi-window-velocity plan))
              (required-vel (org-scribe-planner--calculate-required-velocity plan))
              (momentum (org-scribe-planner--calculate-momentum-score plan))
              (velocity (org-scribe-planner--calculate-velocity plan))
@@ -1935,7 +1943,7 @@ Shows multi-window averages, acceleration/deceleration, and projections."
 
           (insert (make-string 80 ?═) "\n")
           (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                            'face 'shadow)))))))
+                            'face 'shadow))))))
 
 ;;; Velocity Chart (Chart.el Bar Chart)
 
@@ -1944,10 +1952,9 @@ Shows multi-window averages, acceleration/deceleration, and projections."
   "Display velocity bar chart using chart.el for the active plan.
 Shows daily word counts over time with a 7-day moving average."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (daily-counts (org-scribe-plan-daily-word-counts plan))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (daily-counts (org-scribe-plan-daily-word-counts plan))
              (counts-with-words (cl-remove-if-not
                                 (lambda (entry)
                                   (numberp (org-scribe-planner--get-entry-words entry)))
@@ -2018,7 +2025,7 @@ Shows daily word counts over time with a 7-day moving average."
 
             (insert (make-string 80 ?═) "\n")
             (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                              'face 'shadow))))))))
+                              'face 'shadow)))))))
 
 ;;; Multi-Metric Dashboard
 
@@ -2027,10 +2034,9 @@ Shows daily word counts over time with a 7-day moving average."
   "Display comprehensive multi-metric dashboard combining key metrics.
 Shows progress, velocity, performance, and projections in one unified view."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             ;; Gather all metrics
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             ;; Gather all metrics
              (position (org-scribe-planner--calculate-schedule-position plan))
              (velocity (org-scribe-planner--calculate-velocity plan))
              (multi-vel (or (org-scribe-planner--calculate-multi-window-velocity plan)
@@ -2245,7 +2251,7 @@ Shows progress, velocity, performance, and projections in one unified view."
             (insert "  a - Show All Dashboards   r - Refresh              q - Quit\n")
             (insert "\n")
           (insert (propertize "Press any key above to view detailed dashboard\n"
-                            'face 'shadow)))))))
+                            'face 'shadow))))))
 
 ;;;###autoload
 (defun org-scribe-planner-show-split-dashboards ()
@@ -2301,10 +2307,9 @@ Shows progress, velocity, and performance dashboards side by side."
 (defun org-scribe-planner-show-heatmap ()
   "Display calendar heatmap showing writing consistency."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (schedule (org-scribe-planner--generate-day-schedule plan))
+  (org-scribe-planner--with-current-plan (plan _)
+
+    (let* (             (schedule (org-scribe-planner--generate-day-schedule plan))
              (daily-counts (org-scribe-plan-daily-word-counts plan)))
 
         (org-scribe-planner--with-dashboard-buffer "*Writing Heatmap*"
@@ -2386,7 +2391,7 @@ Shows progress, velocity, and performance dashboards side by side."
 
           (insert (make-string 70 ?═) "\n")
           (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                            'face 'shadow)))))))
+                            'face 'shadow))))))
 
 ;;; Dashboard Menu
 

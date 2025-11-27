@@ -301,6 +301,24 @@ Returns validated date string or nil (if ALLOW-EMPTY and user entered nothing)."
 
     date-input))
 
+;;; Helper Macros
+
+(defmacro org-scribe-planner--with-current-plan (varlist &rest body)
+  "Execute BODY with variables from VARLIST bound to current plan and file.
+VARLIST should be (PLAN-VAR FILE-VAR).
+If no current plan is available, display a message and return nil."
+  (declare (indent 1))
+  (let ((plan-var (car varlist))
+        (file-var (cadr varlist))
+        (current-sym (gensym "current")))
+    `(let ((,current-sym (org-scribe-planner--get-current-plan t)))
+       (if ,current-sym
+           (let ((,plan-var (car ,current-sym))
+                 (,file-var (cdr ,current-sym)))
+             ,@body)
+         (message "No current plan available")
+         nil))))
+
 ;;; File Selection Helper
 
 (defun org-scribe-planner--select-plan-file (prompt)
@@ -1298,12 +1316,9 @@ Optional FILEPATH shows the location of the plan file."
 (defun org-scribe-planner-sync-agenda ()
   "Sync active writing plan to org-agenda."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let ((plan (car current))
-            (file (cdr current)))
-        (org-scribe-planner--add-agenda-entries plan file)
-        (org-scribe-planner--update-agenda-file-list file)))))
+  (org-scribe-planner--with-current-plan (plan file)
+    (org-scribe-planner--add-agenda-entries plan file)
+    (org-scribe-planner--update-agenda-file-list file)))
 
 ;;; Helper Functions for Daily Word Counts
 
@@ -1369,66 +1384,59 @@ This allows tracking notes for spare days without affecting cumulative word coun
 (defun org-scribe-planner-update-progress ()
   "Update the current word count for the active writing plan."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let ((plan (car current))
-            (file (cdr current))
-            (new-count (org-scribe-planner--read-non-negative-number "Current word count: ")))
+  (org-scribe-planner--with-current-plan (plan file)
+    (let ((new-count (org-scribe-planner--read-non-negative-number "Current word count: ")))
+      (setf (org-scribe-plan-current-words plan) new-count)
 
-        (setf (org-scribe-plan-current-words plan) new-count)
+      ;; Update the org file
+      (with-current-buffer (find-file-noselect file)
+        (goto-char (point-min))
+        (when (re-search-forward "^\\*" nil t)
+          (org-set-property "CURRENT_WORDS" (number-to-string new-count)))
+        (save-buffer))
 
-        ;; Update the org file
-        (with-current-buffer (find-file-noselect file)
-          (goto-char (point-min))
-          (when (re-search-forward "^\\*" nil t)
-            (org-set-property "CURRENT_WORDS" (number-to-string new-count)))
-          (save-buffer))
+      ;; Update current plan in memory
+      (setq org-scribe-planner--current-plan plan)
 
-        ;; Update current plan in memory
-        (setq org-scribe-planner--current-plan plan)
-
-        ;; Show updated calendar
-        (org-scribe-planner-show-calendar plan file)
-        (org-scribe-planner--show-progress-report plan)))))
+      ;; Show updated calendar
+      (org-scribe-planner-show-calendar plan file)
+      (org-scribe-planner--show-progress-report plan))))
 
 ;;;###autoload
 (defun org-scribe-planner-update-daily-word-count ()
   "Update the actual word count for a specific day in the active plan."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (file (cdr current))
-             (schedule (org-scribe-planner--generate-day-schedule plan))
-             (dates (mapcar (lambda (day) (plist-get day :date)) schedule))
-             (date (completing-read "Select date: " dates nil t))
-             (word-count (org-scribe-planner--read-non-negative-number "Word count for this day: " 0))
-             (note (read-string "Notes (optional): " "")))
+  (org-scribe-planner--with-current-plan (plan file)
+    (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
+           (dates (mapcar (lambda (day) (plist-get day :date)) schedule))
+           (date (completing-read "Select date: " dates nil t))
+           (word-count (org-scribe-planner--read-non-negative-number "Word count for this day: " 0))
+           (note (read-string "Notes (optional): " "")))
 
-        ;; Update or add the daily word count, note, and target
-        ;; Get the current daily target for this date from the schedule
-        (let* ((day-info (cl-find date schedule :key (lambda (d) (plist-get d :date)) :test 'string=))
-               (current-target (if day-info (plist-get day-info :words) (org-scribe-plan-daily-words plan)))
-               (existing (assoc date (org-scribe-plan-daily-word-counts plan)))
-               (entry-data (list :words word-count
-                                :note note
-                                :target current-target)))
-          (if existing
-              (setcdr existing entry-data)
-            (push (cons date entry-data) (org-scribe-plan-daily-word-counts plan))))
+      ;; Update or add the daily word count, note, and target
+      ;; Get the current daily target for this date from the schedule
+      (let* ((day-info (cl-find date schedule :key (lambda (d) (plist-get d :date)) :test 'string=))
+             (current-target (if day-info (plist-get day-info :words) (org-scribe-plan-daily-words plan)))
+             (existing (assoc date (org-scribe-plan-daily-word-counts plan)))
+             (entry-data (list :words word-count
+                              :note note
+                              :target current-target)))
+        (if existing
+            (setcdr existing entry-data)
+          (push (cons date entry-data) (org-scribe-plan-daily-word-counts plan))))
 
-        ;; Save the updated plan to the same file location
-        (org-scribe-planner--save-plan plan file)
+      ;; Save the updated plan to the same file location
+      (org-scribe-planner--save-plan plan file)
 
-        ;; Update current plan in memory
-        (setq org-scribe-planner--current-plan plan)
+      ;; Update current plan in memory
+      (setq org-scribe-planner--current-plan plan)
 
-        (message "Updated word count for %s to %d%s" date word-count
-                 (if (string-empty-p note) "" (format " (note: %s)" note)))
+      (message "Updated word count for %s to %d%s" date word-count
+               (if (string-empty-p note) "" (format " (note: %s)" note)))
 
-        ;; Ask if user wants to recalculate future targets based on cumulative progress
-        (when (y-or-n-p "Would you like to recalculate the remaining plan based on your progress? ")
-          (org-scribe-planner-recalculate-remaining-days plan file))))))
+      ;; Ask if user wants to recalculate future targets based on cumulative progress
+      (when (y-or-n-p "Would you like to recalculate the remaining plan based on your progress? ")
+        (org-scribe-planner-recalculate-remaining-days plan file)))))
 
 (defun org-scribe-planner--show-progress-report (plan)
   "Display a progress report for PLAN."
@@ -1603,23 +1611,16 @@ This command keeps your end date and total word goal fixed, and adjusts
 only the daily target for remaining working days based on your actual
 cumulative progress so far."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let ((plan (car current))
-            (file (cdr current)))
-        (org-scribe-planner-recalculate-remaining-days plan file)))))
+  (org-scribe-planner--with-current-plan (plan file)
+    (org-scribe-planner-recalculate-remaining-days plan file)))
 
 ;;;###autoload
 (defun org-scribe-planner-recalculate ()
   "Recalculate the active writing plan with new parameters."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let ((plan (car current))
-            (file (cdr current)))
-
-        ;; Ask what to recalculate
-        (let ((choice (completing-read
+  (org-scribe-planner--with-current-plan (plan file)
+    ;; Ask what to recalculate
+    (let ((choice (completing-read
                       "What changed? "
                       '("Daily words (recalc days needed)"
                         "Days available (recalc daily words)"
@@ -1690,17 +1691,17 @@ cumulative progress so far."
                   (setf (org-scribe-plan-daily-words plan) nil)
                   (org-scribe-planner--calculate-missing-variable plan)
                   (org-scribe-planner--calculate-dates plan)
-                  (message "Cleared all spare days and recalculated plan")))))))
+                  (message "Cleared all spare days and recalculated plan"))))))
 
-        ;; Save updated plan to the same file location
-        (org-scribe-planner--save-plan plan file)
+      ;; Save updated plan to the same file location
+      (org-scribe-planner--save-plan plan file)
 
-        ;; Update current plan in memory
-        (setq org-scribe-planner--current-plan plan)
+      ;; Update current plan in memory
+      (setq org-scribe-planner--current-plan plan)
 
-        ;; Show updated calendar
-        (org-scribe-planner-show-calendar plan file)
-        (message "Plan recalculated and saved")))))
+      ;; Show updated calendar
+      (org-scribe-planner-show-calendar plan file)
+      (message "Plan recalculated and saved"))))
 
 ;;; Milestone Tracking
 
@@ -1798,13 +1799,11 @@ Tracks actual progress and calculates expected dates for unreached milestones."
 (defun org-scribe-planner-show-milestones ()
   "Show milestone dates for the active writing plan with actual and expected dates."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let* ((plan (car current))
-             (milestones (org-scribe-planner--get-enhanced-milestones plan))
-             (buffer (get-buffer-create "*Writing Plan Milestones*")))
+  (org-scribe-planner--with-current-plan (plan _)
+    (let* ((milestones (org-scribe-planner--get-enhanced-milestones plan))
+           (buffer (get-buffer-create "*Writing Plan Milestones*")))
 
-        (with-current-buffer buffer
+      (with-current-buffer buffer
           (erase-buffer)
           (insert (propertize (format "Milestones for: %s\n\n"
                                      (org-scribe-plan-title plan))
@@ -1842,7 +1841,7 @@ Tracks actual progress and calculates expected dates for unreached milestones."
                                words)
                         'face 'org-warning)))))))
 
-        (display-buffer buffer)))))
+      (display-buffer buffer))))
 
 ;;; Active Plan Management
 
@@ -1851,11 +1850,8 @@ Tracks actual progress and calculates expected dates for unreached milestones."
   "Display the calendar for the currently active plan.
 If no plan is active, prompt to load one."
   (interactive)
-  (let ((current (org-scribe-planner--get-current-plan t)))
-    (when current
-      (let ((plan (car current))
-            (file (cdr current)))
-        (org-scribe-planner-show-calendar plan file)))))
+  (org-scribe-planner--with-current-plan (plan file)
+    (org-scribe-planner-show-calendar plan file)))
 
 ;;;###autoload
 (defun org-scribe-planner-current-plan-info ()
