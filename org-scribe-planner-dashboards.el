@@ -2068,7 +2068,7 @@ Shows progress, velocity, performance, and projections in one unified view."
             (insert (make-string 90 ?─) "\n\n")
 
             ;; Row 1: Progress | Status | Days
-            (insert (format "Progress: %d%%%% (%s / %s)  Status: %s  Days: %d elapsed / %d left\n"
+            (insert (format "Progress: %d%% (%s / %s)  Status: %s  Days: %d elapsed / %d left\n"
                           (round (or progress-pct 0))
                           (org-scribe-planner--format-number (or current-words 0))
                           (org-scribe-planner--format-number (or total-words 0))
@@ -2089,7 +2089,7 @@ Shows progress, velocity, performance, and projections in one unified view."
                           (or momentum 0)))
 
             ;; Row 3: Performance metrics
-            (insert (format "Consistency: %d%%%%  Achievement: %.1f%%%%  Streak: %d days\n"
+            (insert (format "Consistency: %d%%  Achievement: %.1f%%  Streak: %d days\n"
                           (or (plist-get consistency :score) 0)
                           (or (plist-get achievement :rate) 0)
                           (or (plist-get streak :current) 0)))
@@ -2147,7 +2147,7 @@ Shows progress, velocity, performance, and projections in one unified view."
             (let ((col-width 44))
               ;; Consistency
               (insert (format "  Consistency: %s (%d/%d days)  "
-                            (propertize (format "%d%%%%" (or (plist-get consistency :score) 0))
+                            (propertize (format "%d%%" (or (plist-get consistency :score) 0))
                                       'face (if (>= (or (plist-get consistency :score) 0) 80)
                                               'org-done
                                             'org-warning))
@@ -2156,7 +2156,7 @@ Shows progress, velocity, performance, and projections in one unified view."
 
               ;; Achievement
               (insert (format "Achievement: %s (%d days met target)\n"
-                            (propertize (format "%.1f%%%%" (or (plist-get achievement :rate) 0))
+                            (propertize (format "%.1f%%" (or (plist-get achievement :rate) 0))
                                       'face (if (>= (or (plist-get achievement :rate) 0) 70)
                                               'org-done
                                             'org-warning))
