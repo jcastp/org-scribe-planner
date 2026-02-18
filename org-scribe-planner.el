@@ -725,12 +725,15 @@ the cached schedule without re-iterating the date range."
                                         nil t)))
               (when date
                 (setq spare-days (delete date spare-days))
+                (org-scribe-planner--remove-spare-day-note plan date)
                 (message "Removed %s from spare days" date)))))
 
          ((equal method "Remove: All spare days")
           (if (null spare-days)
               (message "No spare days to remove")
             (when (y-or-n-p (format "Remove all %d spare days? " (length spare-days)))
+              (dolist (date spare-days)
+                (org-scribe-planner--remove-spare-day-note plan date))
               (setq spare-days nil)
               (message "Removed all spare days"))))
 
@@ -1422,6 +1425,18 @@ This allows tracking notes for spare days without affecting cumulative word coun
       ;; Create new note-only entry for spare day (no :words field)
       (push (cons date (list :note note))
             (org-scribe-plan-daily-word-counts plan)))))
+
+(defun org-scribe-planner--remove-spare-day-note (plan date)
+  "Remove the note-only entry for DATE from PLAN's daily-word-counts.
+Only removes the entry when it carries no actual word count — i.e. it was
+created solely by `org-scribe-planner--add-spare-day-note'.  Entries that
+also contain a :words value (words actually written on that day) are left
+intact so real progress data is never discarded."
+  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
+         (entry (assoc date daily-counts)))
+    (when (and entry (not (numberp (plist-get (cdr entry) :words))))
+      (setf (org-scribe-plan-daily-word-counts plan)
+            (assoc-delete-all date daily-counts)))))
 
 ;;; Plan Modification and Recalculation
 
