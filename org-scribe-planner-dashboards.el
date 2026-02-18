@@ -64,6 +64,22 @@
             (propertize (make-string empty ?░) 'face 'shadow)
             percent)))
 
+;;; Helper Functions - Dashboard Display
+
+(defun org-scribe-planner--insert-dashboard-header (title plan &optional width height)
+  "Insert a standardised header block at point for a dashboard buffer.
+TITLE is the all-caps label (e.g. \"VELOCITY STATISTICS\").
+PLAN supplies the project name shown on the second line.
+WIDTH is the number of ═ separator characters (default 70).
+HEIGHT is the :height face attribute applied to TITLE (default 1.2)."
+  (let ((sep-width (or width 70))
+        (title-height (or height 1.2)))
+    (insert (propertize (concat title "\n")
+                        'face `(:weight bold :height ,title-height)))
+    (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
+                        'face 'org-level-1))
+    (insert (make-string sep-width ?═) "\n\n")))
+
 ;;; Helper Functions - Date Utilities
 
 (defun org-scribe-planner--get-today-date ()
@@ -287,12 +303,7 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
              (today-actual (org-scribe-planner--get-today-actual plan)))
 
         (org-scribe-planner--with-dashboard-buffer "*Writing Dashboard*"
-          ;; Header
-            (insert (propertize "WRITING PROGRESS DASHBOARD\n"
-                              'face '(:weight bold :height 1.3)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 70 ?═) "\n\n")
+            (org-scribe-planner--insert-dashboard-header "WRITING PROGRESS DASHBOARD" plan 70 1.3)
 
             ;; Overall Progress Section
             (insert (propertize "📊 Overall Progress\n" 'face 'org-level-2))
@@ -556,11 +567,7 @@ WIDTH and HEIGHT are chart dimensions, MAX-WORDS is the scale maximum."
 
         ;; Render chart
         (org-scribe-planner--with-dashboard-buffer "*Burndown Chart*"
-          (insert (propertize "BURNDOWN CHART\n"
-                              'face '(:weight bold :height 1.2)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 75 ?═) "\n\n")
+          (org-scribe-planner--insert-dashboard-header "BURNDOWN CHART" plan 75)
 
             ;; Y-axis label
             (insert (format "%s words remaining\n"
@@ -694,11 +701,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Ideal Burndown', \\
                 (progn
                   ;; Display image in buffer
                   (org-scribe-planner--with-dashboard-buffer "*Burndown Chart (Gnuplot)*"
-                    (insert (propertize "BURNDOWN CHART (GNUPLOT)\n"
-                                        'face '(:weight bold :height 1.2)))
-                      (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                                        'face 'org-level-1))
-                      (insert (make-string 75 ?═) "\n\n")
+                    (org-scribe-planner--insert-dashboard-header "BURNDOWN CHART (GNUPLOT)" plan 75)
 
                       (when (display-graphic-p)
                         (insert-image (create-image output-file)))
@@ -820,11 +823,7 @@ plot '%s' using 1:2 with lines ls 1 title 'Planned Progress', \\
 
                     ;; Display image in buffer
                     (org-scribe-planner--with-dashboard-buffer "*Cumulative Progress*"
-                      (insert (propertize "CUMULATIVE PROGRESS CHART\n"
-                                          'face '(:weight bold :height 1.2)))
-                        (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                                          'face 'org-level-1))
-                        (insert (make-string 75 ?═) "\n\n")
+                      (org-scribe-planner--insert-dashboard-header "CUMULATIVE PROGRESS CHART" plan 75)
 
                         (when (display-graphic-p)
                           (insert-image (create-image output-file)))
@@ -1060,12 +1059,7 @@ WIDTH and HEIGHT are dimensions in pixels."
                (today-actual (org-scribe-planner--get-today-actual plan)))
 
           (org-scribe-planner--with-dashboard-buffer "*Writing Dashboard (SVG)*"
-            ;; Header
-              (insert (propertize "WRITING PROGRESS DASHBOARD\n"
-                                'face '(:weight bold :height 1.3)))
-              (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                                'face 'org-level-1))
-              (insert (make-string 70 ?═) "\n\n")
+              (org-scribe-planner--insert-dashboard-header "WRITING PROGRESS DASHBOARD" plan 70 1.3)
 
               ;; Overall Progress with SVG Bar
               (insert (propertize "📊 Overall Progress\n" 'face 'org-level-2))
@@ -1186,11 +1180,7 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
              (velocity (org-scribe-planner--calculate-velocity plan)))
 
         (org-scribe-planner--with-dashboard-buffer "*Velocity Statistics*"
-          (insert (propertize "VELOCITY STATISTICS\n"
-                              'face '(:weight bold :height 1.2)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 70 ?═) "\n\n")
+          (org-scribe-planner--insert-dashboard-header "VELOCITY STATISTICS" plan)
 
             ;; Summary statistics
             (insert (propertize "📊 Summary Statistics\n" 'face 'org-level-2))
@@ -1423,11 +1413,7 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
              (streak (org-scribe-planner--calculate-current-streak plan)))
 
         (org-scribe-planner--with-dashboard-buffer "*Performance Analytics*"
-          (insert (propertize "PERFORMANCE ANALYTICS\n"
-                              'face '(:weight bold :height 1.2)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 80 ?═) "\n\n")
+          (org-scribe-planner--insert-dashboard-header "PERFORMANCE ANALYTICS" plan 80)
 
             ;; Consistency Score Section
             (insert (propertize "📅 Consistency Score\n" 'face 'org-level-2))
@@ -1718,11 +1704,7 @@ Shows multi-window averages, acceleration/deceleration, and projections."
              (position (org-scribe-planner--calculate-schedule-position plan)))
 
         (org-scribe-planner--with-dashboard-buffer "*Velocity Trend Analysis*"
-          (insert (propertize "VELOCITY TREND ANALYSIS\n"
-                              'face '(:weight bold :height 1.2)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 80 ?═) "\n\n")
+          (org-scribe-planner--insert-dashboard-header "VELOCITY TREND ANALYSIS" plan 80)
 
             ;; Multi-Window Velocity Section
             (insert (propertize "📊 Multi-Window Velocity Analysis\n" 'face 'org-level-2))
@@ -1933,11 +1915,7 @@ Shows daily word counts over time with a 7-day moving average."
             (message "No word count data available to chart")
 
           (org-scribe-planner--with-dashboard-buffer "*Velocity Chart*"
-            (insert (propertize "VELOCITY BAR CHART\n"
-                                'face '(:weight bold :height 1.2)))
-              (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                                'face 'org-level-1))
-              (insert (make-string 80 ?═) "\n\n")
+            (org-scribe-planner--insert-dashboard-header "VELOCITY BAR CHART" plan 80)
 
               ;; Chart.el vertical bar chart
               (let* ((chart-entries (if (> (length sorted-entries) 30)
@@ -2022,11 +2000,7 @@ Shows progress, velocity, performance, and projections in one unified view."
              (status (plist-get position :status)))
 
         (org-scribe-planner--with-dashboard-buffer "*Multi-Metric Dashboard*"
-          (insert (propertize "MULTI-METRIC DASHBOARD\n"
-                              'face '(:weight bold :height 1.3)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 90 ?═) "\n\n")
+          (org-scribe-planner--insert-dashboard-header "MULTI-METRIC DASHBOARD" plan 90 1.3)
 
             ;; Section 1: Quick Stats Overview
             (insert (propertize "📊 OVERVIEW\n" 'face '(:weight bold :height 1.1)))
@@ -2277,11 +2251,7 @@ Shows progress, velocity, and performance dashboards side by side."
              (daily-counts (org-scribe-plan-daily-word-counts plan)))
 
         (org-scribe-planner--with-dashboard-buffer "*Writing Heatmap*"
-          (insert (propertize "WRITING CONSISTENCY HEATMAP\n"
-                              'face '(:weight bold :height 1.2)))
-            (insert (propertize (format "%s\n" (org-scribe-plan-title plan))
-                              'face 'org-level-1))
-            (insert (make-string 70 ?═) "\n\n")
+          (org-scribe-planner--insert-dashboard-header "WRITING CONSISTENCY HEATMAP" plan)
 
             ;; Month headers and calendar grid
             (let ((current-month nil)
