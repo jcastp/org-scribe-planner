@@ -167,7 +167,7 @@ Returns plist with :average :recent :trend :projected-date."
          (word-values (mapcar #'org-scribe-planner--get-entry-words
                              counts-with-words))
          (cumulative-actual (if word-values
-                               (apply '+ word-values)
+                               (apply #'+ word-values)
                              0))
          (days-logged (length counts-with-words))
          (average-velocity (if (> days-logged 0)
@@ -180,7 +180,7 @@ Returns plist with :average :recent :trend :projected-date."
            (recent-counts (last sorted-counts (min 7 (length sorted-counts))))
            (recent-words (mapcar #'org-scribe-planner--get-entry-words recent-counts))
            (recent-velocity (if recent-words
-                              (/ (float (apply '+ recent-words))
+                              (/ (float (apply #'+ recent-words))
                                  (length recent-words))
                             0))
            (trend (cond
@@ -219,7 +219,7 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
          ;; Calculate total current words from ALL entries (not just up to today)
          ;; This matches how the progress dashboard calculates current-words
          (cumulative-actual (if counts-with-words
-                                (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                                (apply #'+ (mapcar #'org-scribe-planner--get-entry-words
                                                   counts-with-words))
                               0))
          (expected-by-today 0)
@@ -286,7 +286,7 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
              (daily-counts (org-scribe-plan-daily-word-counts plan))
              (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
              (current-words (if counts-with-words
-                               (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                               (apply #'+ (mapcar #'org-scribe-planner--get-entry-words
                                                 counts-with-words))
                              0))
              (percent (if (> total 0)
@@ -920,8 +920,8 @@ WIDTH and HEIGHT are dimensions in pixels."
   (require 'svg)
   (when (and values (> (length values) 1))
     (let* ((svg (svg-create width height))
-           (min-val (apply 'min values))
-           (max-val (apply 'max values))
+           (min-val (apply #'min values))
+           (max-val (apply #'max values))
            (range (- max-val min-val))
            (step (/ (float width) (1- (length values))))
            (points nil))
@@ -1043,7 +1043,7 @@ WIDTH and HEIGHT are dimensions in pixels."
                (daily-counts (org-scribe-plan-daily-word-counts plan))
                (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
                (current-words (if counts-with-words
-                                 (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                                 (apply #'+ (mapcar #'org-scribe-planner--get-entry-words
                                                   counts-with-words))
                                0))
                (percent (if (> total 0)
@@ -1145,7 +1145,7 @@ VALUES is a list of numbers, WINDOW is the number of days to average over."
     (dotimes (i (length values))
       (let* ((start (max 0 (- i (1- window))))
              (window-values (cl-subseq values start (1+ i)))
-             (avg (/ (float (apply '+ window-values)) (length window-values))))
+             (avg (/ (float (apply #'+ window-values)) (length window-values))))
         (push avg result)))
     (nreverse result)))
 
@@ -1182,11 +1182,11 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
             ;; Summary statistics
             (insert (propertize "📊 Summary Statistics\n" 'face 'org-level-2))
             (when (> (length word-counts) 0)
-              (let ((total (apply '+ word-counts))
+              (let ((total (apply #'+ word-counts))
                     (avg (plist-get velocity :average))
                     (recent (plist-get velocity :recent))
-                    (max-words (apply 'max word-counts))
-                    (min-words (apply 'min word-counts))
+                    (max-words (apply #'max word-counts))
+                    (min-words (apply #'min word-counts))
                     (days-logged (plist-get velocity :days-logged)))
 
                 (insert (format "  Days logged:      %d\n" days-logged))
@@ -1500,7 +1500,7 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
             (insert "\n")
 
             ;; Find max for scaling bars
-            (let* ((max-avg (apply 'max
+            (let* ((max-avg (apply #'max
                                   (mapcar (lambda (entry)
                                            (plist-get (cdr entry) :average))
                                          dow-stats)))
@@ -1574,21 +1574,21 @@ Returns plist with :7-day :14-day :30-day :overall velocities and trend info."
          (total-days (length word-counts)))
 
     (when (> total-days 0)
-      (let* ((overall-avg (/ (float (apply '+ word-counts)) total-days))
+      (let* ((overall-avg (/ (float (apply #'+ word-counts)) total-days))
              ;; Calculate 7-day average
              (last-7 (last word-counts (min 7 total-days)))
              (avg-7 (if last-7
-                       (/ (float (apply '+ last-7)) (length last-7))
+                       (/ (float (apply #'+ last-7)) (length last-7))
                      0))
              ;; Calculate 14-day average
              (last-14 (last word-counts (min 14 total-days)))
              (avg-14 (if last-14
-                        (/ (float (apply '+ last-14)) (length last-14))
+                        (/ (float (apply #'+ last-14)) (length last-14))
                       0))
              ;; Calculate 30-day average
              (last-30 (last word-counts (min 30 total-days)))
              (avg-30 (if last-30
-                        (/ (float (apply '+ last-30)) (length last-30))
+                        (/ (float (apply #'+ last-30)) (length last-30))
                       0))
              ;; Determine trend (compare recent to overall)
              (trend-7 (cond
@@ -1618,7 +1618,7 @@ Returns plist with :required-velocity :current-velocity :feasible :adjustment-ne
          (daily-counts (org-scribe-plan-daily-word-counts plan))
          (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
          (current-words (if counts-with-words
-                           (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                           (apply #'+ (mapcar #'org-scribe-planner--get-entry-words
                                             counts-with-words))
                          0))
          (remaining-words (- total-words current-words))
@@ -1935,10 +1935,10 @@ Shows daily word counts over time with a 7-day moving average."
 
               ;; Statistics below chart
               (insert (propertize "Statistics\n" 'face 'org-level-2))
-              (let* ((total (apply '+ word-counts))
-                     (avg (/ (float (apply '+ word-counts)) (length word-counts)))
-                     (max-words (apply 'max word-counts))
-                     (min-words (apply 'min word-counts))
+              (let* ((total (apply #'+ word-counts))
+                     (avg (/ (float (apply #'+ word-counts)) (length word-counts)))
+                     (max-words (apply #'max word-counts))
+                     (min-words (apply #'min word-counts))
                      (recent-avg (if (>= (length moving-avg) 1)
                                     (car (last moving-avg))
                                   avg)))

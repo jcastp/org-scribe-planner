@@ -717,7 +717,7 @@ the cached schedule without re-iterating the date range."
           (if (null spare-days)
               (message "No spare days to remove")
             (let ((date (completing-read "Select date to remove: "
-                                        (sort (copy-sequence spare-days) 'string<)
+                                        (sort (copy-sequence spare-days) #'string<)
                                         nil t)))
               (when date
                 (setq spare-days (delete date spare-days))
@@ -736,10 +736,10 @@ the cached schedule without re-iterating the date range."
          ((equal method "List current spare days")
           (if (null spare-days)
               (message "No spare days configured")
-            (let ((sorted-days (sort (copy-sequence spare-days) 'string<)))
+            (let ((sorted-days (sort (copy-sequence spare-days) #'string<)))
               (message "Current spare days (%d): %s"
                       (length sorted-days)
-                      (mapconcat 'identity sorted-days ", ")))))
+                      (mapconcat #'identity sorted-days ", ")))))
 
          ((equal method "Done")
           (setq continue nil)))))
@@ -905,7 +905,7 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
         (org-set-property "CURRENT_WORDS" (number-to-string (org-scribe-plan-current-words plan)))
 
         (when (org-scribe-plan-spare-days plan)
-          (org-set-property "SPARE_DAYS" (mapconcat 'identity (org-scribe-plan-spare-days plan) ",")))
+          (org-set-property "SPARE_DAYS" (mapconcat #'identity (org-scribe-plan-spare-days plan) ",")))
 
         (when (org-scribe-plan-daily-word-counts plan)
           (let ((entries-with-words
@@ -1529,7 +1529,7 @@ Returns a plist with:
   :remaining-days    — working days in the schedule that have no actual entry"
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
          (cumulative-actual (if daily-counts
-                               (apply '+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
+                               (apply #'+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
                              0))
          (remaining-words (- (org-scribe-plan-total-words plan) cumulative-actual))
          (schedule (org-scribe-planner--generate-day-schedule plan))
@@ -1728,7 +1728,7 @@ cumulative progress so far."
               (if (null current-spare-days)
                   (message "No spare days to remove")
                 (let ((date (completing-read "Select date to remove: "
-                                            (sort (copy-sequence current-spare-days) 'string<)
+                                            (sort (copy-sequence current-spare-days) #'string<)
                                             nil t)))
                   (when date
                     (setf (org-scribe-plan-spare-days plan)
