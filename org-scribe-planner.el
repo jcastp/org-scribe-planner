@@ -3,7 +3,7 @@
 ;; Copyright (C) 2025
 
 ;; Author: Javier Castilla
-;; Version: 0.1.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "27.1") (org "9.0"))
 ;; Keywords: org, writing, planning, productivity
 ;; URL: https://codeberg.org/jcastp/org-scribe-planner
