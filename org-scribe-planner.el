@@ -884,25 +884,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
                   (org-scribe-plan-daily-word-counts plan))))
             (when entries-with-words
               (org-set-property "DAILY_WORD_COUNTS"
-                               (mapconcat (lambda (entry)
-                                           (let* ((date (car entry))
-                                                  (data (cdr entry))
-                                                  (word-count (plist-get data :words))
-                                                  (note (or (plist-get data :note) ""))
-                                                  (target (plist-get data :target)))
-                                             (cond
-                                              ;; Format with target
-                                              (target
-                                               (if (and note (not (string-empty-p note)))
-                                                   (format "%s:%d:%s:%d" date word-count note target)
-                                                 (format "%s:%d::%d" date word-count target)))
-                                              ;; Format without target
-                                              ((and note (not (string-empty-p note)))
-                                               (format "%s:%d:%s" date word-count note))
-                                              (t
-                                               (format "%s:%d" date word-count)))))
-                                         entries-with-words
-                                         ",")))))
+                               (mapconcat #'org-scribe-planner--format-daily-count-entry
+                                          entries-with-words
+                                          ",")))))
 
         ;; Add schedule as content
         (goto-char (point-max))
@@ -1050,23 +1034,9 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
           ;; If we updated any notes, persist them to the properties
           (when notes-updated
             (org-set-property "DAILY_WORD_COUNTS"
-                             (mapconcat (lambda (entry)
-                                         (let* ((date (car entry))
-                                                (data (cdr entry))
-                                                (word-count (plist-get data :words))
-                                                (note (or (plist-get data :note) ""))
-                                                (target (plist-get data :target)))
-                                           (cond
-                                            (target
-                                             (if (and note (not (string-empty-p note)))
-                                                 (format "%s:%d:%s:%d" date word-count note target)
-                                               (format "%s:%d::%d" date word-count target)))
-                                            ((and note (not (string-empty-p note)))
-                                             (format "%s:%d:%s" date word-count note))
-                                            (t
-                                             (format "%s:%d" date word-count)))))
-                                       (org-scribe-plan-daily-word-counts plan)
-                                       ","))
+                             (mapconcat #'org-scribe-planner--format-daily-count-entry
+                                        (org-scribe-plan-daily-word-counts plan)
+                                        ","))
             (save-buffer)
             (message "Merged %d note(s) from schedule table into plan properties"
                      (length table-notes)))))
@@ -1368,6 +1338,29 @@ ENTRY must be in new format: (date . (:words N :note \"...\" :target M))."
 ENTRY must be in new format: (date . (:words N :note \"...\" :target M)).
 Returns nil if no target is stored."
   (plist-get (cdr entry) :target))
+
+(defun org-scribe-planner--format-daily-count-entry (entry)
+  "Format daily-word-count ENTRY as a string for the DAILY_WORD_COUNTS property.
+ENTRY must be in new format: (date . (:words N :note \"...\" :target M)).
+Returns one of:
+  \"DATE:WORDS\"
+  \"DATE:WORDS:NOTE\"
+  \"DATE:WORDS::TARGET\"
+  \"DATE:WORDS:NOTE:TARGET\""
+  (let* ((date       (car entry))
+         (data       (cdr entry))
+         (word-count (plist-get data :words))
+         (note       (or (plist-get data :note) ""))
+         (target     (plist-get data :target)))
+    (cond
+     (target
+      (if (and note (not (string-empty-p note)))
+          (format "%s:%d:%s:%d" date word-count note target)
+        (format "%s:%d::%d" date word-count target)))
+     ((and note (not (string-empty-p note)))
+      (format "%s:%d:%s" date word-count note))
+     (t
+      (format "%s:%d" date word-count)))))
 
 (defun org-scribe-planner--add-spare-day-note (plan date note)
   "Add or update a note for a spare day in PLAN.
