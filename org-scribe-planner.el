@@ -1486,7 +1486,6 @@ FILE is the path where the plan should be saved."
                              0))
          (total-words (org-scribe-plan-total-words plan))
          (remaining-words (- total-words cumulative-actual))
-         (today (format-time-string "%Y-%m-%d"))
          (end-date (org-scribe-plan-end-date plan))
          (schedule (org-scribe-planner--generate-day-schedule plan))
          (remaining-days 0))
