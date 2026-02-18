@@ -124,7 +124,10 @@ This is set when creating a new plan or loading an existing one.")
   "Calculate the missing variable in PLAN.
 Given 2 of 3 variables (total-words, daily-words, days), calculate the third.
 Updates PLAN in place and returns the calculated variable as a symbol."
-  (with-slots (total-words daily-words days spare-days) plan
+  (let ((total-words (org-scribe-plan-total-words plan))
+        (daily-words (org-scribe-plan-daily-words plan))
+        (days (org-scribe-plan-days plan))
+        (spare-days (org-scribe-plan-spare-days plan)))
     (let ((num-spare-days (if spare-days (length spare-days) 0))
           (non-nil-count 0)
           (missing-var nil))
@@ -189,18 +192,19 @@ Updates PLAN in place and returns the calculated variable as a symbol."
 If start-date is set, calculates end-date.
 If neither is set, uses today as start-date.
 If end-date is already set, skips calculating it."
-  (with-slots (start-date end-date days spare-days) plan
+  (let ((days (org-scribe-plan-days plan))
+        (end-date (org-scribe-plan-end-date plan)))
     (unless days
       (error "Cannot calculate dates: days value is not set. Please ensure the plan has been properly calculated"))
 
     ;; Set start-date to today if not set
-    (unless start-date
+    (unless (org-scribe-plan-start-date plan)
       (setf (org-scribe-plan-start-date plan)
             (format-time-string "%Y-%m-%d")))
 
     ;; Calculate end-date only if not already set
     (unless end-date
-      (let* ((start (org-scribe-planner--parse-date start-date))
+      (let* ((start (org-scribe-planner--parse-date (org-scribe-plan-start-date plan)))
              (end (time-add start (days-to-time (1- days)))))
         (setf (org-scribe-plan-end-date plan)
               (format-time-string "%Y-%m-%d" end))))))
@@ -445,7 +449,10 @@ Returns a list of plists with :date, :words, :cumulative, :is-spare-day.
 
 The result is memoised: repeated calls with identical plan parameters return
 the cached schedule without re-iterating the date range."
-  (with-slots (start-date end-date daily-words spare-days) plan
+  (let ((start-date (org-scribe-plan-start-date plan))
+        (end-date (org-scribe-plan-end-date plan))
+        (daily-words (org-scribe-plan-daily-words plan))
+        (spare-days (org-scribe-plan-spare-days plan)))
     (unless (and start-date end-date)
       (error "Cannot generate schedule: start-date (%s) and end-date (%s) must be set. Please calculate dates first"
              start-date end-date))
