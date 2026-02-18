@@ -1715,25 +1715,6 @@ cumulative progress so far."
 
 ;;; Milestone Tracking
 
-(defun org-scribe-planner--get-milestones (plan)
-  "Calculate milestone dates for PLAN (25%, 50%, 75%, 100%).
-This is the old implementation, kept for backward compatibility.
-Use `org-scribe-planner--get-enhanced-milestones' for better tracking."
-  (let* ((total (org-scribe-plan-total-words plan))
-         (schedule (org-scribe-planner--generate-day-schedule plan))
-         (milestones '((25 . nil) (50 . nil) (75 . nil) (100 . nil))))
-
-    (dolist (day schedule)
-      (let* ((cumulative (plist-get day :cumulative))
-             (percent (* 100.0 (/ (float cumulative) total))))
-
-        (dolist (milestone milestones)
-          (when (and (>= percent (car milestone))
-                    (not (cdr milestone)))
-            (setcdr milestone (plist-get day :date))))))
-
-    milestones))
-
 (defun org-scribe-planner--get-enhanced-milestones (plan)
   "Calculate enhanced milestone information for PLAN.
 Returns a list of plists with :percent, :words, :reached, :date, and :expected.
