@@ -200,22 +200,21 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
   (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
          (today (org-scribe-planner--get-today-date))
          (daily-counts (org-scribe-plan-daily-word-counts plan))
+         (counts-with-words (cl-remove-if-not
+                             (lambda (entry)
+                               (numberp (org-scribe-planner--get-entry-words entry)))
+                             daily-counts))
+         ;; Calculate total current words from ALL entries (not just up to today)
+         ;; This matches how the progress dashboard calculates current-words
+         (cumulative-actual (if counts-with-words
+                                (apply '+ (mapcar #'org-scribe-planner--get-entry-words
+                                                  counts-with-words))
+                              0))
          (expected-by-today 0)
          (days-completed 0)
          (expected-days 0)
          (days-elapsed 0)
          (days-remaining 0))
-
-    ;; Calculate total current words from ALL entries (not just up to today)
-    ;; This matches how the progress dashboard calculates current-words
-    (let ((counts-with-words (cl-remove-if-not
-                              (lambda (entry)
-                                (numberp (org-scribe-planner--get-entry-words entry)))
-                              daily-counts)))
-      (setq cumulative-actual (if counts-with-words
-                                 (apply '+ (mapcar #'org-scribe-planner--get-entry-words
-                                                  counts-with-words))
-                               0)))
 
     ;; Calculate expected words and days elapsed up to today
     (dolist (day schedule)
