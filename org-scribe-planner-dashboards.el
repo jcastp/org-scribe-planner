@@ -29,6 +29,7 @@
 ;; Declare functions from org-scribe-planner (avoid circular dependency)
 (declare-function org-scribe-planner--get-current-plan "org-scribe-planner")
 (declare-function org-scribe-planner--generate-day-schedule "org-scribe-planner")
+(declare-function org-scribe-planner--parse-date-parts "org-scribe-planner")
 (declare-function org-scribe-planner--get-entry-words "org-scribe-planner")
 (declare-function org-scribe-planner--counts-with-words "org-scribe-planner")
 (declare-function org-scribe-planner--add-days "org-scribe-planner")
@@ -1295,7 +1296,7 @@ containing :day-name :total-words :count :average."
 
         ;; Only count non-spare days with data
         (when (and (not is-spare) (numberp actual-words))
-          (let* ((date-parts (mapcar 'string-to-number (split-string date "-")))
+          (let* ((date-parts (org-scribe-planner--parse-date-parts date))
                  (year (nth 0 date-parts))
                  (month (nth 1 date-parts))
                  (day-num (nth 2 date-parts))
@@ -2257,7 +2258,7 @@ Shows progress, velocity, and performance dashboards side by side."
                   (current-year nil))
               (dolist (day schedule)
                 (let* ((date (plist-get day :date))
-                       (date-parts (mapcar 'string-to-number (split-string date "-")))
+                       (date-parts (org-scribe-planner--parse-date-parts date))
                        (year (nth 0 date-parts))
                        (month (nth 1 date-parts))
                        (day-num (nth 2 date-parts))

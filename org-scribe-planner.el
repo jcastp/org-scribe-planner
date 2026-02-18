@@ -213,6 +213,10 @@ If end-date is already set, skips calculating it."
   "Parse DATE-STRING in YYYY-MM-DD format to Emacs time."
   (apply #'encode-time (parse-time-string (concat date-string " 00:00:00"))))
 
+(defun org-scribe-planner--parse-date-parts (date-string)
+  "Return a list (YEAR MONTH DAY) of integers from DATE-STRING in YYYY-MM-DD format."
+  (mapcar #'string-to-number (split-string date-string "-")))
+
 (defun org-scribe-planner--date-to-string (time)
   "Convert Emacs TIME to YYYY-MM-DD string."
   (format-time-string "%Y-%m-%d" time))
@@ -249,7 +253,7 @@ Returns t if valid, signals an error otherwise."
     (error "Invalid date format: '%s'. Expected YYYY-MM-DD (e.g., 2024-11-19)" date-string))
 
   ;; Parse date components
-  (let* ((parts (mapcar 'string-to-number (split-string date-string "-")))
+  (let* ((parts (org-scribe-planner--parse-date-parts date-string))
          (year (nth 0 parts))
          (month (nth 1 parts))
          (day (nth 2 parts)))
@@ -1148,7 +1152,7 @@ Optional FILEPATH shows the location of the plan file."
                    (note (when daily-data
                           (or (plist-get daily-data :note) "")))
                    ;; Parse date to get day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
-                   (date-parts (mapcar 'string-to-number (split-string date "-")))
+                   (date-parts (org-scribe-planner--parse-date-parts date))
                    (year (nth 0 date-parts))
                    (month (nth 1 date-parts))
                    (day-num (nth 2 date-parts))
@@ -1231,7 +1235,7 @@ Optional FILEPATH shows the location of the plan file."
               (let ((next-day (cadr (member day schedule))))
                 (when (or (null next-day)  ; last day
                          (let* ((next-date (plist-get next-day :date))
-                                (next-parts (mapcar 'string-to-number (split-string next-date "-")))
+                                (next-parts (org-scribe-planner--parse-date-parts next-date))
                                 (next-dow (calendar-day-of-week (list (nth 1 next-parts) (nth 2 next-parts) (nth 0 next-parts)))))
                            (= next-dow 1)))  ; next day is Monday
                   (insert (propertize (format "  Week total: %d words\n" week-words)
