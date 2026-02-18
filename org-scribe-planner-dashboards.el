@@ -22,6 +22,10 @@
 
 (require 'chart)  ; Built-in Emacs charting library
 
+;; Make macros from org-scribe-planner available at byte-compilation time.
+;; At runtime the main file is always loaded first, so this is a no-op then.
+(eval-when-compile (require 'org-scribe-planner))
+
 ;; Declare functions from org-scribe-planner (avoid circular dependency)
 (declare-function org-scribe-planner--get-current-plan "org-scribe-planner")
 (declare-function org-scribe-planner--generate-day-schedule "org-scribe-planner")
@@ -412,22 +416,6 @@ beginning, and displayed after BODY executes."
        (org-scribe-planner-dashboard-mode)
        (display-buffer (current-buffer))
        (current-buffer))))
-
-(defmacro org-scribe-planner--with-current-plan (varlist &rest body)
-  "Execute BODY with variables from VARLIST bound to current plan and file.
-VARLIST should be (PLAN-VAR FILE-VAR).
-If no current plan is available, display a message and return nil."
-  (declare (indent 1))
-  (let ((plan-var (car varlist))
-        (file-var (cadr varlist))
-        (current-sym (gensym "current")))
-    `(let ((,current-sym (org-scribe-planner--get-current-plan t)))
-       (if ,current-sym
-           (let ((,plan-var (car ,current-sym))
-                 (,file-var (cdr ,current-sym)))
-             ,@body)
-         (message "No current plan available")
-         nil))))
 
 ;;; Dashboard Mode
 
