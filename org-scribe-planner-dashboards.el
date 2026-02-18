@@ -124,11 +124,12 @@ Returns plist with :current :longest and :last-streak-date."
             ;; Break in streak
             (setq temp-streak 0)))))
 
-    ;; Current streak is the temp streak only if it extends to today or recent past
+    ;; Current streak is the temp streak only if it extends to today or within the grace window
     (setq current-streak
           (if (and last-streak-date
                   (or (string= last-streak-date today)
-                      (< (org-scribe-planner--days-between last-streak-date today) 3)))
+                      (< (org-scribe-planner--days-between last-streak-date today)
+                         (1+ org-scribe-planner-streak-grace-days))))
               temp-streak
             0))
 

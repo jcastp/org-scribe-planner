@@ -84,6 +84,15 @@
   :type 'string
   :group 'org-scribe-planner)
 
+(defcustom org-scribe-planner-streak-grace-days 2
+  "Number of days without a new entry before a writing streak is broken.
+A value of 2 means the streak survives if the last logged entry was
+yesterday or the day before today, which accommodates logging words
+the morning after you wrote them.  Set to 1 to require an entry
+every day without any tolerance."
+  :type 'integer
+  :group 'org-scribe-planner)
+
 ;;; Current Plan Tracking
 
 (defvar org-scribe-planner--current-plan nil
