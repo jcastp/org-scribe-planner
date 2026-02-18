@@ -1247,26 +1247,30 @@ Optional FILEPATH shows the location of the plan file."
       (goto-char (point-min))
       (display-buffer buffer))))
 
+(defvar org-scribe-planner-calendar-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") #'quit-window)
+    (define-key map (kbd "r") #'org-scribe-planner-recalculate)
+    (define-key map (kbd "u") #'org-scribe-planner-update-progress)
+    (define-key map (kbd "d") #'org-scribe-planner-update-daily-word-count)
+    (define-key map (kbd "a") #'org-scribe-planner-adjust-remaining-plan)
+    (define-key map (kbd "D") #'org-scribe-planner-dashboards-menu)
+    (define-key map (kbd "m") #'org-scribe-planner-show-multi-metric-dashboard)
+    (define-key map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
+    (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
+    (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
+    (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
+    (define-key map (kbd "V") #'org-scribe-planner-show-velocity-chart)
+    (define-key map (kbd "t") #'org-scribe-planner-show-velocity-trends)
+    (define-key map (kbd "P") #'org-scribe-planner-show-performance-analytics)
+    (define-key map (kbd "s") #'org-scribe-planner-show-split-dashboards)
+    (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
+    map)
+  "Keymap for `org-scribe-planner-calendar-mode'.")
+
 (define-derived-mode org-scribe-planner-calendar-mode special-mode "Writing-Plan"
   "Major mode for displaying writing plan calendars."
   (setq truncate-lines t))
-
-(define-key org-scribe-planner-calendar-mode-map (kbd "q") #'quit-window)
-(define-key org-scribe-planner-calendar-mode-map (kbd "r") #'org-scribe-planner-recalculate)
-(define-key org-scribe-planner-calendar-mode-map (kbd "u") #'org-scribe-planner-update-progress)
-(define-key org-scribe-planner-calendar-mode-map (kbd "d") #'org-scribe-planner-update-daily-word-count)
-(define-key org-scribe-planner-calendar-mode-map (kbd "a") #'org-scribe-planner-adjust-remaining-plan)
-(define-key org-scribe-planner-calendar-mode-map (kbd "D") #'org-scribe-planner-dashboards-menu)
-(define-key org-scribe-planner-calendar-mode-map (kbd "m") #'org-scribe-planner-show-multi-metric-dashboard)
-(define-key org-scribe-planner-calendar-mode-map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
-(define-key org-scribe-planner-calendar-mode-map (kbd "b") #'org-scribe-planner-show-burndown)
-(define-key org-scribe-planner-calendar-mode-map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
-(define-key org-scribe-planner-calendar-mode-map (kbd "v") #'org-scribe-planner-show-velocity)
-(define-key org-scribe-planner-calendar-mode-map (kbd "V") #'org-scribe-planner-show-velocity-chart)
-(define-key org-scribe-planner-calendar-mode-map (kbd "t") #'org-scribe-planner-show-velocity-trends)
-(define-key org-scribe-planner-calendar-mode-map (kbd "P") #'org-scribe-planner-show-performance-analytics)
-(define-key org-scribe-planner-calendar-mode-map (kbd "s") #'org-scribe-planner-show-split-dashboards)
-(define-key org-scribe-planner-calendar-mode-map (kbd "h") #'org-scribe-planner-show-heatmap)
 
 ;;; Org-agenda Integration
 
