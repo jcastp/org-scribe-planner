@@ -200,7 +200,7 @@ If end-date is already set, skips calculating it."
     ;; Set start-date to today if not set
     (unless (org-scribe-plan-start-date plan)
       (setf (org-scribe-plan-start-date plan)
-            (format-time-string "%Y-%m-%d")))
+            (org-scribe-planner--get-today-date)))
 
     ;; Calculate end-date only if not already set
     (unless end-date
@@ -216,6 +216,10 @@ If end-date is already set, skips calculating it."
 (defun org-scribe-planner--parse-date-parts (date-string)
   "Return a list (YEAR MONTH DAY) of integers from DATE-STRING in YYYY-MM-DD format."
   (mapcar #'string-to-number (split-string date-string "-")))
+
+(defun org-scribe-planner--get-today-date ()
+  "Get today's date in YYYY-MM-DD format."
+  (format-time-string "%Y-%m-%d"))
 
 (defun org-scribe-planner--date-to-string (time)
   "Convert Emacs TIME to YYYY-MM-DD string."
@@ -555,7 +559,7 @@ the cached schedule without re-iterating the date range."
     (unless (org-scribe-plan-start-date plan)
       (setf (org-scribe-plan-start-date plan)
             (org-scribe-planner--read-date "Start date (YYYY-MM-DD)"
-                                          (format-time-string "%Y-%m-%d"))))
+                                          (org-scribe-planner--get-today-date)))
 
     ;; Calculate missing variable and dates FIRST (before asking about spare days)
     (condition-case err
@@ -1486,7 +1490,7 @@ This allows tracking notes for spare days without affecting cumulative word coun
          (remaining (- total current))
          (percent (* 100.0 (/ (float current) total)))
          (schedule (org-scribe-planner--generate-day-schedule plan))
-         (today (format-time-string "%Y-%m-%d"))
+         (today (org-scribe-planner--get-today-date))
          (days-elapsed 0)
          (expected-words 0))
 
@@ -1576,7 +1580,7 @@ FILE is the path where the plan should be saved."
          (cumulative-actual (plist-get data :cumulative-actual))
          (remaining-words   (plist-get data :remaining-words))
          (remaining-days    (plist-get data :remaining-days))
-         (today    (format-time-string "%Y-%m-%d"))
+         (today    (org-scribe-planner--get-today-date))
          (end-date (org-scribe-plan-end-date plan)))
 
     (message "Current progress: %d words written. Remaining: %d words (%d working days left)"

@@ -83,10 +83,6 @@ HEIGHT is the :height face attribute applied to TITLE (default 1.2)."
 
 ;;; Helper Functions - Date Utilities
 
-(defun org-scribe-planner--get-today-date ()
-  "Get today's date in YYYY-MM-DD format."
-  (format-time-string "%Y-%m-%d"))
-
 (defun org-scribe-planner--get-today-target (plan)
   "Get the target word count for today from PLAN.
 Returns nil if today is not in the plan or is a spare day."
