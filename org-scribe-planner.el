@@ -757,9 +757,10 @@ the cached schedule without re-iterating the date range."
     (nreverse dates)))
 
 (defun org-scribe-planner--get-weekends (plan)
-  "Get all weekend dates (Saturday and Sunday) for PLAN."
-  (append (org-scribe-planner--get-day-of-week plan 6)
-          (org-scribe-planner--get-day-of-week plan 0)))
+  "Get all weekend dates (Saturday and Sunday) for PLAN, sorted chronologically."
+  (sort (append (org-scribe-planner--get-day-of-week plan 6)
+                (org-scribe-planner--get-day-of-week plan 0))
+        #'string<))
 
 (defun org-scribe-planner--get-day-of-week (plan day-number)
   "Get all dates in PLAN that fall on DAY-NUMBER (0=Sunday, 6=Saturday)."
