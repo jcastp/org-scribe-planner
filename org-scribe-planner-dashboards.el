@@ -2083,7 +2083,7 @@ Shows progress, velocity, performance, and projections in one unified view."
             (insert (propertize "🎯 PERFORMANCE METRICS\n" 'face '(:weight bold :height 1.1)))
             (insert (make-string 90 ?─) "\n\n")
 
-            (let ((col-width 44))
+            (progn
               ;; Consistency
               (insert (format "  Consistency: %s (%d/%d days)  "
                             (propertize (format "%d%%" (or (plist-get consistency :score) 0))
@@ -2156,8 +2156,7 @@ Shows progress, velocity, performance, and projections in one unified view."
                    (remaining-days (or (plist-get required-vel :remaining-days) 0))
                    (feasible (plist-get required-vel :feasible))
                    (projected-date (plist-get velocity :projected-date))
-                   (planned-end (org-scribe-plan-end-date plan))
-                   (col-width 44))
+                   (planned-end (org-scribe-plan-end-date plan)))
 
               (insert (format "  Remaining: %s words    Working days left: %d\n"
                             (org-scribe-planner--format-number remaining-words)
