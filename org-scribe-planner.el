@@ -878,9 +878,7 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 
         (when (org-scribe-plan-daily-word-counts plan)
           (let ((entries-with-words
-                 (cl-remove-if-not
-                  (lambda (entry)
-                    (numberp (plist-get (cdr entry) :words)))
+                 (org-scribe-planner--counts-with-words
                   (org-scribe-plan-daily-word-counts plan))))
             (when entries-with-words
               (org-set-property "DAILY_WORD_COUNTS"
@@ -1338,6 +1336,14 @@ ENTRY must be in new format: (date . (:words N :note \"...\" :target M))."
 ENTRY must be in new format: (date . (:words N :note \"...\" :target M)).
 Returns nil if no target is stored."
   (plist-get (cdr entry) :target))
+
+(defun org-scribe-planner--counts-with-words (daily-counts)
+  "Return only entries from DAILY-COUNTS that have a numeric word count.
+Filters out note-only entries, which carry a note string but no :words field."
+  (cl-remove-if-not
+   (lambda (entry)
+     (numberp (org-scribe-planner--get-entry-words entry)))
+   daily-counts))
 
 (defun org-scribe-planner--format-daily-count-entry (entry)
   "Format daily-word-count ENTRY as a string for the DAILY_WORD_COUNTS property.

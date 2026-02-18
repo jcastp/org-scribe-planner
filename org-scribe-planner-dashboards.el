@@ -30,6 +30,7 @@
 (declare-function org-scribe-planner--get-current-plan "org-scribe-planner")
 (declare-function org-scribe-planner--generate-day-schedule "org-scribe-planner")
 (declare-function org-scribe-planner--get-entry-words "org-scribe-planner")
+(declare-function org-scribe-planner--counts-with-words "org-scribe-planner")
 (declare-function org-scribe-planner--add-days "org-scribe-planner")
 (declare-function org-scribe-planner--days-between "org-scribe-planner")
 (declare-function org-scribe-planner-show-current-plan "org-scribe-planner")
@@ -149,11 +150,7 @@ Returns plist with :average :recent :trend :projected-date."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
          (total-words (org-scribe-plan-total-words plan))
          (today (org-scribe-planner--get-today-date))
-         ;; Filter out note-only entries
-         (counts-with-words (cl-remove-if-not
-                            (lambda (entry)
-                              (numberp (org-scribe-planner--get-entry-words entry)))
-                            daily-counts))
+         (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
          (word-values (mapcar #'org-scribe-planner--get-entry-words
                              counts-with-words))
          (cumulative-actual (if word-values
@@ -205,10 +202,7 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
   (let* ((schedule (org-scribe-planner--generate-day-schedule plan))
          (today (org-scribe-planner--get-today-date))
          (daily-counts (org-scribe-plan-daily-word-counts plan))
-         (counts-with-words (cl-remove-if-not
-                             (lambda (entry)
-                               (numberp (org-scribe-planner--get-entry-words entry)))
-                             daily-counts))
+         (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
          ;; Calculate total current words from ALL entries (not just up to today)
          ;; This matches how the progress dashboard calculates current-words
          (cumulative-actual (if counts-with-words
@@ -277,10 +271,7 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
   (org-scribe-planner--with-current-plan (plan _)
     (let* ((total (org-scribe-plan-total-words plan))
              (daily-counts (org-scribe-plan-daily-word-counts plan))
-             (counts-with-words (cl-remove-if-not
-                                (lambda (entry)
-                                  (numberp (org-scribe-planner--get-entry-words entry)))
-                                daily-counts))
+             (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
              (current-words (if counts-with-words
                                (apply '+ (mapcar #'org-scribe-planner--get-entry-words
                                                 counts-with-words))
@@ -1054,10 +1045,7 @@ WIDTH and HEIGHT are dimensions in pixels."
 
       (let* (               (total (org-scribe-plan-total-words plan))
                (daily-counts (org-scribe-plan-daily-word-counts plan))
-               (counts-with-words (cl-remove-if-not
-                                  (lambda (entry)
-                                    (numberp (org-scribe-planner--get-entry-words entry)))
-                                  daily-counts))
+               (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
                (current-words (if counts-with-words
                                  (apply '+ (mapcar #'org-scribe-planner--get-entry-words
                                                   counts-with-words))
@@ -1190,10 +1178,7 @@ Shows every Nth date to avoid overcrowding. MAX-LABELS defaults to 10."
   (org-scribe-planner--with-current-plan (plan _)
 
     (let* (             (daily-counts (org-scribe-plan-daily-word-counts plan))
-             (counts-with-words (cl-remove-if-not
-                                (lambda (entry)
-                                  (numberp (org-scribe-planner--get-entry-words entry)))
-                                daily-counts))
+             (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
              (sorted-entries (sort (copy-sequence counts-with-words)
                                   (lambda (a b) (string< (car a) (car b)))))
              (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
@@ -1599,10 +1584,7 @@ Shows day-of-week patterns, consistency scores, and target achievement rates."
   "Calculate velocity across multiple time windows for PLAN.
 Returns plist with :7-day :14-day :30-day :overall velocities and trend info."
   (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
-         (counts-with-words (cl-remove-if-not
-                            (lambda (entry)
-                              (numberp (org-scribe-planner--get-entry-words entry)))
-                            daily-counts))
+         (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
          (sorted-entries (sort (copy-sequence counts-with-words)
                               (lambda (a b) (string< (car a) (car b)))))
          (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
@@ -1651,10 +1633,7 @@ Returns plist with :7-day :14-day :30-day :overall velocities and trend info."
 Returns plist with :required-velocity :current-velocity :feasible :adjustment-needed."
   (let* ((total-words (org-scribe-plan-total-words plan))
          (daily-counts (org-scribe-plan-daily-word-counts plan))
-         (counts-with-words (cl-remove-if-not
-                            (lambda (entry)
-                              (numberp (org-scribe-planner--get-entry-words entry)))
-                            daily-counts))
+         (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
          (current-words (if counts-with-words
                            (apply '+ (mapcar #'org-scribe-planner--get-entry-words
                                             counts-with-words))
@@ -1943,10 +1922,7 @@ Shows daily word counts over time with a 7-day moving average."
   (org-scribe-planner--with-current-plan (plan _)
 
     (let* (             (daily-counts (org-scribe-plan-daily-word-counts plan))
-             (counts-with-words (cl-remove-if-not
-                                (lambda (entry)
-                                  (numberp (org-scribe-planner--get-entry-words entry)))
-                                daily-counts))
+             (counts-with-words (org-scribe-planner--counts-with-words daily-counts))
              (sorted-entries (sort (copy-sequence counts-with-words)
                                   (lambda (a b) (string< (car a) (car b)))))
              (word-counts (mapcar #'org-scribe-planner--get-entry-words sorted-entries))
