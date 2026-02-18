@@ -555,7 +555,7 @@ the cached schedule without re-iterating the date range."
     (unless (org-scribe-plan-start-date plan)
       (setf (org-scribe-plan-start-date plan)
             (org-scribe-planner--read-date "Start date (YYYY-MM-DD)"
-                                          (org-scribe-planner--get-today-date)))
+                                          (org-scribe-planner--get-today-date))))
 
     ;; Calculate missing variable and dates FIRST (before asking about spare days)
     (condition-case err
