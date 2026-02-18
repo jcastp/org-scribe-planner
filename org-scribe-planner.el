@@ -1451,9 +1451,9 @@ This allows tracking notes for spare days without affecting cumulative word coun
          (days-elapsed 0)
          (expected-words 0))
 
-    ;; Calculate expected words by today
+    ;; Calculate expected words by today (inclusive)
     (dolist (day schedule)
-      (when (string< (plist-get day :date) today)
+      (when (not (string< today (plist-get day :date)))
         (setq days-elapsed (1+ days-elapsed))
         (unless (plist-get day :is-spare-day)
           (setq expected-words (+ expected-words (plist-get day :words))))))
