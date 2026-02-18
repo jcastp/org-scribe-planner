@@ -59,6 +59,8 @@
                   "org-scribe-planner-dashboards")
 (declare-function org-scribe-planner-dashboards-menu
                   "org-scribe-planner-dashboards")
+(declare-function org-scribe-planner-dashboard-mode
+                  "org-scribe-planner-dashboards")
 
 ;;; Customization
 
@@ -1800,10 +1802,9 @@ Tracks actual progress and calculates expected dates for unreached milestones."
   "Show milestone dates for the active writing plan with actual and expected dates."
   (interactive)
   (org-scribe-planner--with-current-plan (plan _)
-    (let* ((milestones (org-scribe-planner--get-enhanced-milestones plan))
-           (buffer (get-buffer-create "*Writing Plan Milestones*")))
-
-      (with-current-buffer buffer
+    (let ((milestones (org-scribe-planner--get-enhanced-milestones plan)))
+      (with-current-buffer (get-buffer-create "*Writing Plan Milestones*")
+        (let ((inhibit-read-only t))
           (erase-buffer)
           (insert (propertize (format "Milestones for: %s\n\n"
                                      (org-scribe-plan-title plan))
@@ -1839,9 +1840,14 @@ Tracks actual progress and calculates expected dates for unreached milestones."
                         (format "%3d%% - Not reached (%d words) - cannot be reached by end date\n"
                                percent
                                words)
-                        'face 'org-warning)))))))
+                        'face 'org-warning))))))
 
-      (display-buffer buffer))))
+          (insert "\n")
+          (insert (propertize "Press 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                            'face 'shadow))
+          (goto-char (point-min))
+          (org-scribe-planner-dashboard-mode)
+          (display-buffer (current-buffer)))))))
 
 ;;; Active Plan Management
 
