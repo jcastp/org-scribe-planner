@@ -433,36 +433,52 @@ Returns either:
 
 ;;; Schedule Generation
 
+(defvar org-scribe-planner--schedule-cache nil
+  "One-entry memo cache for `org-scribe-planner--generate-day-schedule'.
+Stored as a cons (KEY . SCHEDULE) where KEY is a string built from the four
+plan fields that determine the schedule: start-date, end-date, daily-words,
+and spare-days.  Set to nil when no result is cached.")
+
 (defun org-scribe-planner--generate-day-schedule (plan)
   "Generate a list of writing days with cumulative word counts for PLAN.
-Returns a list of plists with :date, :words, :cumulative, :is-spare-day."
+Returns a list of plists with :date, :words, :cumulative, :is-spare-day.
+
+The result is memoised: repeated calls with identical plan parameters return
+the cached schedule without re-iterating the date range."
   (with-slots (start-date end-date daily-words spare-days) plan
     (unless (and start-date end-date)
       (error "Cannot generate schedule: start-date (%s) and end-date (%s) must be set. Please calculate dates first"
              start-date end-date))
 
-    (let ((current-date (org-scribe-planner--parse-date start-date))
-          (end (org-scribe-planner--parse-date end-date))
-          (cumulative 0)
-          (schedule nil))
+    (let ((key (format "%s|%s|%d|%S" start-date end-date daily-words spare-days)))
+      (if (and org-scribe-planner--schedule-cache
+               (string= (car org-scribe-planner--schedule-cache) key))
+          (cdr org-scribe-planner--schedule-cache)
 
-      (while (not (time-less-p end current-date))
-        (let* ((date-str (org-scribe-planner--date-to-string current-date))
-               (is-spare (org-scribe-planner--is-spare-day date-str spare-days))
-               (words (if is-spare 0 daily-words)))
+        (let ((current-date (org-scribe-planner--parse-date start-date))
+              (end (org-scribe-planner--parse-date end-date))
+              (cumulative 0)
+              (schedule nil))
 
-          (unless is-spare
-            (setq cumulative (+ cumulative words)))
+          (while (not (time-less-p end current-date))
+            (let* ((date-str (org-scribe-planner--date-to-string current-date))
+                   (is-spare (org-scribe-planner--is-spare-day date-str spare-days))
+                   (words (if is-spare 0 daily-words)))
 
-          (push (list :date date-str
-                     :words words
-                     :cumulative cumulative
-                     :is-spare-day is-spare)
-                schedule)
+              (unless is-spare
+                (setq cumulative (+ cumulative words)))
 
-          (setq current-date (time-add current-date (days-to-time 1)))))
+              (push (list :date date-str
+                         :words words
+                         :cumulative cumulative
+                         :is-spare-day is-spare)
+                    schedule)
 
-      (nreverse schedule))))
+              (setq current-date (time-add current-date (days-to-time 1)))))
+
+          (let ((result (nreverse schedule)))
+            (setq org-scribe-planner--schedule-cache (cons key result))
+            result))))))
 
 ;;; Interactive Commands
 
