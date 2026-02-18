@@ -1505,30 +1505,41 @@ This allows tracking notes for spare days without affecting cumulative word coun
        (if (>= ahead-behind 0) "+" "")
        ahead-behind))))
 
+(defun org-scribe-planner--compute-recalculation-data (plan)
+  "Compute the common recalculation values for PLAN.
+Returns a plist with:
+  :cumulative-actual — total words written so far (sum of all daily entries)
+  :remaining-words   — total-words minus cumulative-actual
+  :remaining-days    — working days in the schedule that have no actual entry"
+  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
+         (cumulative-actual (if daily-counts
+                               (apply '+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
+                             0))
+         (remaining-words (- (org-scribe-plan-total-words plan) cumulative-actual))
+         (schedule (org-scribe-planner--generate-day-schedule plan))
+         (remaining-days 0))
+    (dolist (day schedule)
+      (let ((date (plist-get day :date))
+            (is-spare (plist-get day :is-spare-day)))
+        (when (and (not (assoc date daily-counts))
+                   (not is-spare))
+          (setq remaining-days (1+ remaining-days)))))
+    (list :cumulative-actual cumulative-actual
+          :remaining-words   remaining-words
+          :remaining-days    remaining-days)))
+
 (defun org-scribe-planner-recalculate-remaining-days (plan file)
   "Recalculate daily target for remaining days based on cumulative progress.
 Keeps end date and total words fixed. Adjusts only the daily target for
 remaining working days.
 PLAN is the writing plan to recalculate.
 FILE is the path where the plan should be saved."
-  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
-         (cumulative-actual (if daily-counts
-                               (apply '+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
-                             0))
-         (total-words (org-scribe-plan-total-words plan))
-         (remaining-words (- total-words cumulative-actual))
-         (end-date (org-scribe-plan-end-date plan))
-         (schedule (org-scribe-planner--generate-day-schedule plan))
-         (remaining-days 0))
-
-    ;; Count remaining working days (days without actual word counts, excluding spare days)
-    (dolist (day schedule)
-      (let* ((date (plist-get day :date))
-             (is-spare (plist-get day :is-spare-day))
-             (has-actual (assoc date daily-counts)))
-        (when (and (not has-actual)  ; Only count days without actual word counts
-                  (not is-spare))     ; Don't count spare days
-          (setq remaining-days (1+ remaining-days)))))
+  (let* ((data             (org-scribe-planner--compute-recalculation-data plan))
+         (cumulative-actual (plist-get data :cumulative-actual))
+         (remaining-words   (plist-get data :remaining-words))
+         (remaining-days    (plist-get data :remaining-days))
+         (end-date          (org-scribe-plan-end-date plan))
+         (total-words       (org-scribe-plan-total-words plan)))
 
     (if (<= remaining-days 0)
         (message "No remaining days in the plan. Plan has ended or all remaining days are spare days.")
@@ -1561,25 +1572,12 @@ FILE is the path where the plan should be saved."
 (defun org-scribe-planner-recalculate-from-progress (plan file)
   "Recalculate PLAN based on cumulative actual progress.
 FILE is the path where the plan should be saved."
-  (let* ((daily-counts (org-scribe-plan-daily-word-counts plan))
-         (cumulative-actual (if daily-counts
-                               (apply '+ (delq nil (mapcar #'org-scribe-planner--get-entry-words daily-counts)))
-                             0))
-         (total-words (org-scribe-plan-total-words plan))
-         (remaining-words (- total-words cumulative-actual))
-         (today (format-time-string "%Y-%m-%d"))
-         (end-date (org-scribe-plan-end-date plan))
-         (schedule (org-scribe-planner--generate-day-schedule plan))
-         (remaining-days 0))
-
-    ;; Count remaining working days (days without actual word counts, excluding spare days)
-    (dolist (day schedule)
-      (let* ((date (plist-get day :date))
-             (is-spare (plist-get day :is-spare-day))
-             (has-actual (assoc date daily-counts)))
-        (when (and (not has-actual)  ; Only count days without actual word counts
-                  (not is-spare))     ; Don't count spare days
-          (setq remaining-days (1+ remaining-days)))))
+  (let* ((data             (org-scribe-planner--compute-recalculation-data plan))
+         (cumulative-actual (plist-get data :cumulative-actual))
+         (remaining-words   (plist-get data :remaining-words))
+         (remaining-days    (plist-get data :remaining-days))
+         (today    (format-time-string "%Y-%m-%d"))
+         (end-date (org-scribe-plan-end-date plan)))
 
     (message "Current progress: %d words written. Remaining: %d words (%d working days left)"
              cumulative-actual remaining-words remaining-days)
