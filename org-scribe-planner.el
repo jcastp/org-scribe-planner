@@ -239,10 +239,6 @@ If end-date is already set, skips calculating it."
          (days (/ (float-time diff) 86400)))
     (round (1+ days))))  ; Add 1 to include both start and end dates
 
-(defun org-scribe-planner--is-spare-day (date spare-days)
-  "Check if DATE is in the SPARE-DAYS list."
-  (member date spare-days))
-
 (defun org-scribe-planner--validate-date-format (date-string)
   "Check if DATE-STRING matches YYYY-MM-DD format.
 Returns t if valid format, nil otherwise."
@@ -477,7 +473,7 @@ the cached schedule without re-iterating the date range."
 
           (while (not (time-less-p end current-date))
             (let* ((date-str (org-scribe-planner--date-to-string current-date))
-                   (is-spare (org-scribe-planner--is-spare-day date-str spare-days))
+                   (is-spare (member date-str spare-days))
                    (words (if is-spare 0 daily-words)))
 
               (unless is-spare
