@@ -1591,7 +1591,8 @@ FILE is the path where the plan should be saved."
                    "How would you like to recalculate? "
                    '("Adjust end date (keep daily word count)"
                      "Adjust daily word count (keep end date)")
-                   nil t)))
+                   nil t))
+          (result-msg nil))
 
       (cond
        ((string-match "Adjust end date" choice)
@@ -1609,8 +1610,8 @@ FILE is the path where the plan should be saved."
             ;; Recalculate days based on new end date
             (setf (org-scribe-plan-days plan)
                   (org-scribe-planner--days-between start-date new-end-date))
-            (message "Recalculated: %d words remaining, new end date is %s (keeping %d words/day)"
-                     remaining-words new-end-date daily-words))))
+            (setq result-msg (format "Recalculated: %d words remaining, new end date is %s (keeping %d words/day)"
+                                     remaining-words new-end-date daily-words)))))
 
        ((string-match "Adjust daily word count" choice)
         ;; Keep end date, recalculate daily words to fit remaining work
@@ -1638,13 +1639,14 @@ FILE is the path where the plan should be saved."
           ;; The schedule generator applies daily-words to ALL working days,
           ;; so total must equal daily-words × working-days for consistency
           (setf (org-scribe-plan-total-words plan) new-total-words)
-          (message "Recalculated: %d words written, %d words remaining over %d working days. Adjusted goal to %d total words, new daily target: %d words (keeping end date %s)"
-                   cumulative-actual remaining-words remaining-days new-total-words new-daily-words end-date)))))
+          (setq result-msg (format "Recalculated: %d words written, %d words remaining over %d working days. Adjusted goal to %d total words, new daily target: %d words (keeping end date %s)"
+                                   cumulative-actual remaining-words remaining-days new-total-words new-daily-words end-date)))))
 
-    ;; Save and display (save to the file location that was passed in)
-    (org-scribe-planner--save-plan plan file)
-    (org-scribe-planner-show-calendar plan file)
-    (message "Plan recalculated and saved")))
+      ;; Save and display (save to the file location that was passed in)
+      (org-scribe-planner--save-plan plan file)
+      (org-scribe-planner-show-calendar plan file)
+      (when result-msg
+        (message "%s" result-msg)))))
 
 ;;;###autoload
 (defun org-scribe-planner-adjust-remaining-plan ()
