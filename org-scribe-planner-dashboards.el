@@ -22,9 +22,7 @@
 
 (require 'chart)  ; Built-in Emacs charting library
 
-;; Make macros from org-scribe-planner available at byte-compilation time.
-;; At runtime the main file is always loaded first, so this is a no-op then.
-(eval-when-compile (require 'org-scribe-planner))
+(require 'org-scribe-planner)
 
 ;; Declare functions from org-scribe-planner (avoid circular dependency)
 (declare-function org-scribe-planner--get-current-plan "org-scribe-planner")

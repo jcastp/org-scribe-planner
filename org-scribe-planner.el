@@ -1905,16 +1905,6 @@ If no plan is active, prompt to load one."
                org-scribe-planner--current-plan-file)
     (message "No active plan. Use `org-scribe-planner-load-plan' to load one.")))
 
-;;; Load Dashboard Extensions
-
-;; Ensure current directory is in load-path for dashboards
-(let ((current-dir (file-name-directory (or load-file-name buffer-file-name))))
-  (when current-dir
-    (add-to-list 'load-path current-dir)))
-
-;; Load dashboards if available (dashboards file should be in same directory)
-(require 'org-scribe-planner-dashboards nil t)
-
 ;;; Provide
 
 (provide 'org-scribe-planner)
