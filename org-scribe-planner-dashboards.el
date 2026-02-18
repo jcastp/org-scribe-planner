@@ -393,9 +393,9 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
                 (insert (propertize "  Projected finish: Insufficient data\n"
                                   'face 'shadow))))
 
-        (insert "\n" (make-string 70 ?═) "\n")
-        (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
-                          'face 'shadow))))))
+            (insert "\n" (make-string 70 ?═) "\n")
+            (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
+                              'face 'shadow))))))
 
 ;;; Helper Macros
 
