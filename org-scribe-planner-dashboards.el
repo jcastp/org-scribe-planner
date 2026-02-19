@@ -273,6 +273,83 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
             :days-elapsed days-elapsed
             :days-remaining days-remaining))))
 
+;;; Helper Macros
+
+(defmacro org-scribe-planner--with-dashboard-buffer (buffer-name &rest body)
+  "Create or reuse dashboard BUFFER-NAME, execute BODY, and display.
+BODY should insert content into the buffer. The buffer is automatically
+erased, put into `org-scribe-planner-dashboard-mode', positioned at the
+beginning, and displayed after BODY executes."
+  (declare (indent 1))
+  `(with-current-buffer (get-buffer-create ,buffer-name)
+     (let ((inhibit-read-only t))
+       (erase-buffer)
+       ,@body
+       (goto-char (point-min))
+       (org-scribe-planner-dashboard-mode)
+       (display-buffer (current-buffer))
+       (current-buffer))))
+
+;;; Dashboard Mode
+
+(defvar org-scribe-planner-dashboard-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") #'quit-window)
+    (define-key map (kbd "r") #'org-scribe-planner-dashboard-refresh)
+    (define-key map (kbd "c") #'org-scribe-planner-show-current-plan)
+    (define-key map (kbd "D") #'org-scribe-planner-dashboards-menu)
+    (define-key map (kbd "m") #'org-scribe-planner-show-multi-metric-dashboard)
+    (define-key map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
+    (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
+    (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
+    (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
+    (define-key map (kbd "V") #'org-scribe-planner-show-velocity-chart)
+    (define-key map (kbd "t") #'org-scribe-planner-show-velocity-trends)
+    (define-key map (kbd "P") #'org-scribe-planner-show-performance-analytics)
+    (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
+    (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
+    (define-key map (kbd "s") #'org-scribe-planner-show-split-dashboards)
+    (define-key map (kbd "?") #'describe-mode)
+    map)
+  "Keymap for `org-scribe-planner-dashboard-mode'.")
+
+(defun org-scribe-planner-dashboard-refresh ()
+  "Refresh the current dashboard based on buffer name."
+  (interactive)
+  (let ((buffer-name (buffer-name)))
+    (cond
+     ((string= buffer-name "*Writing Dashboard*")
+      (org-scribe-planner-show-progress-dashboard))
+     ((string= buffer-name "*Writing Dashboard (SVG)*")
+      (org-scribe-planner-show-progress-dashboard-svg))
+     ((string= buffer-name "*Burndown Chart*")
+      (org-scribe-planner-show-burndown-ascii))
+     ((string= buffer-name "*Burndown Chart (Gnuplot)*")
+      (org-scribe-planner-show-burndown-gnuplot))
+     ((string= buffer-name "*Cumulative Progress*")
+      (org-scribe-planner-show-cumulative-progress))
+     ((string= buffer-name "*Velocity Statistics*")
+      (org-scribe-planner-show-velocity))
+     ((string= buffer-name "*Velocity Chart*")
+      (org-scribe-planner-show-velocity-chart))
+     ((string= buffer-name "*Velocity Trend Analysis*")
+      (org-scribe-planner-show-velocity-trends))
+     ((string= buffer-name "*Performance Analytics*")
+      (org-scribe-planner-show-performance-analytics))
+     ((string= buffer-name "*Multi-Metric Dashboard*")
+      (org-scribe-planner-show-multi-metric-dashboard))
+     ((string= buffer-name "*Writing Heatmap*")
+      (org-scribe-planner-show-heatmap))
+     (t
+      (message "Unknown dashboard type, use specific refresh command")))))
+
+(define-derived-mode org-scribe-planner-dashboard-mode special-mode "Writing-Dashboard"
+  "Major mode for displaying writing progress dashboards.
+
+\\{org-scribe-planner-dashboard-mode-map}"
+  (setq truncate-lines t
+        buffer-read-only t))
+
 ;;; Main Dashboard Function
 
 ;;;###autoload
@@ -396,83 +473,6 @@ Returns plist with :status :days-ahead :words-ahead :current-words :percentage :
             (insert "\n" (make-string 70 ?═) "\n")
             (insert (propertize "\nPress 'q' to close | 'r' to refresh | 'c' to view calendar\n"
                               'face 'shadow))))))
-
-;;; Helper Macros
-
-(defmacro org-scribe-planner--with-dashboard-buffer (buffer-name &rest body)
-  "Create or reuse dashboard BUFFER-NAME, execute BODY, and display.
-BODY should insert content into the buffer. The buffer is automatically
-erased, put into `org-scribe-planner-dashboard-mode', positioned at the
-beginning, and displayed after BODY executes."
-  (declare (indent 1))
-  `(with-current-buffer (get-buffer-create ,buffer-name)
-     (let ((inhibit-read-only t))
-       (erase-buffer)
-       ,@body
-       (goto-char (point-min))
-       (org-scribe-planner-dashboard-mode)
-       (display-buffer (current-buffer))
-       (current-buffer))))
-
-;;; Dashboard Mode
-
-(defvar org-scribe-planner-dashboard-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "q") #'quit-window)
-    (define-key map (kbd "r") #'org-scribe-planner-dashboard-refresh)
-    (define-key map (kbd "c") #'org-scribe-planner-show-current-plan)
-    (define-key map (kbd "D") #'org-scribe-planner-dashboards-menu)
-    (define-key map (kbd "m") #'org-scribe-planner-show-multi-metric-dashboard)
-    (define-key map (kbd "p") #'org-scribe-planner-show-progress-dashboard)
-    (define-key map (kbd "b") #'org-scribe-planner-show-burndown)
-    (define-key map (kbd "g") #'org-scribe-planner-show-cumulative-progress)
-    (define-key map (kbd "v") #'org-scribe-planner-show-velocity)
-    (define-key map (kbd "V") #'org-scribe-planner-show-velocity-chart)
-    (define-key map (kbd "t") #'org-scribe-planner-show-velocity-trends)
-    (define-key map (kbd "P") #'org-scribe-planner-show-performance-analytics)
-    (define-key map (kbd "h") #'org-scribe-planner-show-heatmap)
-    (define-key map (kbd "a") #'org-scribe-planner-show-all-dashboards)
-    (define-key map (kbd "s") #'org-scribe-planner-show-split-dashboards)
-    (define-key map (kbd "?") #'describe-mode)
-    map)
-  "Keymap for `org-scribe-planner-dashboard-mode'.")
-
-(defun org-scribe-planner-dashboard-refresh ()
-  "Refresh the current dashboard based on buffer name."
-  (interactive)
-  (let ((buffer-name (buffer-name)))
-    (cond
-     ((string= buffer-name "*Writing Dashboard*")
-      (org-scribe-planner-show-progress-dashboard))
-     ((string= buffer-name "*Writing Dashboard (SVG)*")
-      (org-scribe-planner-show-progress-dashboard-svg))
-     ((string= buffer-name "*Burndown Chart*")
-      (org-scribe-planner-show-burndown-ascii))
-     ((string= buffer-name "*Burndown Chart (Gnuplot)*")
-      (org-scribe-planner-show-burndown-gnuplot))
-     ((string= buffer-name "*Cumulative Progress*")
-      (org-scribe-planner-show-cumulative-progress))
-     ((string= buffer-name "*Velocity Statistics*")
-      (org-scribe-planner-show-velocity))
-     ((string= buffer-name "*Velocity Chart*")
-      (org-scribe-planner-show-velocity-chart))
-     ((string= buffer-name "*Velocity Trend Analysis*")
-      (org-scribe-planner-show-velocity-trends))
-     ((string= buffer-name "*Performance Analytics*")
-      (org-scribe-planner-show-performance-analytics))
-     ((string= buffer-name "*Multi-Metric Dashboard*")
-      (org-scribe-planner-show-multi-metric-dashboard))
-     ((string= buffer-name "*Writing Heatmap*")
-      (org-scribe-planner-show-heatmap))
-     (t
-      (message "Unknown dashboard type, use specific refresh command")))))
-
-(define-derived-mode org-scribe-planner-dashboard-mode special-mode "Writing-Dashboard"
-  "Major mode for displaying writing progress dashboards.
-
-\\{org-scribe-planner-dashboard-mode-map}"
-  (setq truncate-lines t
-        buffer-read-only t))
 
 ;;; Burndown Chart (ASCII)
 
