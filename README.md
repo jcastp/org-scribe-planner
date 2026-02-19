@@ -538,6 +538,30 @@ The package validates all numeric input:
 - For daily word counts, you can enter 0 or any positive number
 - Error messages will tell you what you entered and what's expected
 
+## Development
+
+### Running Tests
+
+All tests live in the `tests/` directory and use ERT (Emacs Regression Testing). Run from the project root:
+
+```bash
+# Run the full test suite (81 tests)
+emacs -batch -l ert \
+  -l tests/test-date-validation.el \
+  -l tests/test-buffer-safety.el \
+  -l tests/test-calculation.el \
+  -l tests/test-schedule.el \
+  -l tests/test-data-helpers.el \
+  -l tests/test-plan-io.el \
+  -l tests/test-milestones.el \
+  -f ert-run-tests-batch-and-exit
+
+# Run a single test file
+emacs -batch -l ert -l tests/test-calculation.el -f ert-run-tests-batch-and-exit
+```
+
+The test files cover the core calculation engine, schedule generation, daily count serialization, plan I/O round-trips, and milestone tracking.
+
 ## Contributing
 
 Contributions are welcome! This package is actively developed and includes:

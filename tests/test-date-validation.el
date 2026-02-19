@@ -6,7 +6,9 @@
 ;;; Code:
 
 (require 'ert)
-(load-file "org-scribe-planner.el")
+(let ((dir (file-name-directory (or (and load-file-name (expand-file-name load-file-name))
+                                    buffer-file-name ""))))
+  (load-file (expand-file-name "../org-scribe-planner.el" dir)))
 
 ;; Test date format validation
 (ert-deftest test-validate-date-format-valid ()
