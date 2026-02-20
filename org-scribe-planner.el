@@ -103,6 +103,35 @@ This is set when creating a new plan or loading an existing one.")
   "File path of the currently active writing plan.
 This is set when creating a new plan or loading an existing one.")
 
+;;; Integration Hooks and Pluggable Function Variables
+
+(defvar org-scribe-planner-after-progress-update-hook nil
+  "Hook run after a word count update is saved.
+Each function is called with three arguments: PLAN (the current
+`org-scribe-plan' struct), NEW-COUNT (the updated cumulative word
+count or per-day count just saved), and DATE (YYYY-MM-DD string for
+the day being updated, or nil for a cumulative update).")
+
+(defvar org-scribe-planner-after-plan-load-hook nil
+  "Hook run after a plan is loaded and set as current.
+Each function is called with two arguments: PLAN (the loaded
+`org-scribe-plan' struct) and FILE-PATH (absolute path to the .org
+file).")
+
+(defvar org-scribe-planner-wordcount-function nil
+  "Optional function to retrieve the current project word count.
+When non-nil, `org-scribe-planner-update-progress' calls this
+function with no arguments and uses its return value (an integer)
+as the new cumulative word count, skipping the manual prompt.
+The function may return nil to fall back to the normal prompt.")
+
+(defvar org-scribe-planner-project-root-function nil
+  "Optional function returning the current writing project root.
+When non-nil, commands such as `org-scribe-planner-load-plan' can
+use this to suggest or auto-load the project's associated plan file.
+The function takes no arguments and returns a directory path string
+or nil if no project is active.")
+
 ;;; Data Structures
 
 (cl-defstruct org-scribe-plan
@@ -340,19 +369,19 @@ If no current plan is available, display a message and return nil."
 
 ;;; File Selection Helper
 
-(defun org-scribe-planner--select-plan-file (prompt)
+(defun org-scribe-planner--select-plan-file (prompt &optional directory)
   "Prompt user to select a plan file with PROMPT.
-Returns the selected file path."
+If DIRECTORY is non-nil, use it as the starting directory instead of
+`org-scribe-planner-directory'.  Returns the selected file path."
   (read-file-name prompt
-                  org-scribe-planner-directory
+                  (or directory org-scribe-planner-directory)
                   nil
                   t
                   nil
 		  ;; this allows now for path manipulation in the minibuffer
 		  (lambda (name)
                     (or (file-directory-p name)
-			(string-match-p "\\.org$" name)))
-		  ))
+			(string-match-p "\\.org$" name)))))
 
 (defun org-scribe-planner--get-current-plan (&optional allow-prompt)
   "Return the current active plan and its file path as (plan . file).
@@ -637,6 +666,9 @@ the cached schedule without re-iterating the date range."
             ;; Set as current active plan
             (setq org-scribe-planner--current-plan plan)
             (setq org-scribe-planner--current-plan-file save-location)
+
+            ;; Run hook
+            (run-hook-with-args 'org-scribe-planner-after-plan-load-hook plan save-location)
 
             ;; Display the plan
             (org-scribe-planner-show-calendar plan save-location)))
@@ -1076,12 +1108,16 @@ If FILEPATH is not provided, generate a default filename in org-scribe-planner-d
 (defun org-scribe-planner-load-plan ()
   "Load an existing writing plan and set it as the active plan."
   (interactive)
-  (let ((file (org-scribe-planner--select-plan-file "Select plan file: ")))
+  (let* ((start-dir (when org-scribe-planner-project-root-function
+                      (funcall org-scribe-planner-project-root-function)))
+         (file (org-scribe-planner--select-plan-file "Select plan file: " start-dir)))
     (when file
       (let ((plan (org-scribe-planner--load-plan file)))
         ;; Set as current active plan
         (setq org-scribe-planner--current-plan plan)
         (setq org-scribe-planner--current-plan-file file)
+        ;; Run hook
+        (run-hook-with-args 'org-scribe-planner-after-plan-load-hook plan file)
         (org-scribe-planner-show-calendar plan file)))))
 
 ;;; Calendar Visualization
@@ -1442,7 +1478,9 @@ intact so real progress data is never discarded."
   "Update the current word count for the active writing plan."
   (interactive)
   (org-scribe-planner--with-current-plan (plan file)
-    (let ((new-count (org-scribe-planner--read-non-negative-number "Current word count: ")))
+    (let ((new-count (or (and org-scribe-planner-wordcount-function
+                              (funcall org-scribe-planner-wordcount-function))
+                         (org-scribe-planner--read-non-negative-number "Current word count: "))))
       (setf (org-scribe-plan-current-words plan) new-count)
 
       ;; Update the org file
@@ -1454,6 +1492,9 @@ intact so real progress data is never discarded."
 
       ;; Update current plan in memory
       (setq org-scribe-planner--current-plan plan)
+
+      ;; Run hook: nil date signals a cumulative (non-daily) update
+      (run-hook-with-args 'org-scribe-planner-after-progress-update-hook plan new-count nil)
 
       ;; Show updated calendar
       (org-scribe-planner-show-calendar plan file)
@@ -1490,6 +1531,9 @@ intact so real progress data is never discarded."
 
       (message "Updated word count for %s to %d%s" date word-count
                (if (string-empty-p note) "" (format " (note: %s)" note)))
+
+      ;; Run hook with plan, daily count, and date
+      (run-hook-with-args 'org-scribe-planner-after-progress-update-hook plan word-count date)
 
       ;; Ask if user wants to recalculate future targets based on cumulative progress
       (when (y-or-n-p "Would you like to recalculate the remaining plan based on your progress? ")
