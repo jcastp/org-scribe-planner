@@ -1539,6 +1539,45 @@ intact so real progress data is never discarded."
       (when (y-or-n-p "Would you like to recalculate the remaining plan based on your progress? ")
         (org-scribe-planner-recalculate-remaining-days plan file)))))
 
+;;;###autoload
+(defun org-scribe-planner-today ()
+  "Log today's word count to the active plan without extra prompts.
+Pre-fills today's date, asks for a word count (using
+`org-scribe-planner-wordcount-function' when set) and an optional note,
+then saves immediately.  No recalculation prompt is shown."
+  (interactive)
+  (org-scribe-planner--with-current-plan (plan file)
+    (let* ((today (org-scribe-planner--get-today-date))
+           (schedule (org-scribe-planner--generate-day-schedule plan))
+           (day-info (cl-find today schedule
+                              :key (lambda (d) (plist-get d :date))
+                              :test #'string=))
+           (is-spare (and day-info (plist-get day-info :is-spare-day)))
+           (current-target (if day-info
+                               (plist-get day-info :words)
+                             (org-scribe-plan-daily-words plan)))
+           (word-count (or (and org-scribe-planner-wordcount-function
+                                (funcall org-scribe-planner-wordcount-function))
+                           (org-scribe-planner--read-non-negative-number
+                            (if is-spare
+                                (format "Word count for today (%s, spare day): " today)
+                              (format "Word count for today (%s): " today))
+                            0)))
+           (note (read-string "Note (optional): " ""))
+           (existing (assoc today (org-scribe-plan-daily-word-counts plan)))
+           (entry-data (list :words word-count
+                             :note note
+                             :target current-target)))
+      (if existing
+          (setcdr existing entry-data)
+        (push (cons today entry-data) (org-scribe-plan-daily-word-counts plan)))
+      (org-scribe-planner--save-plan plan file)
+      (setq org-scribe-planner--current-plan plan)
+      (message "Logged %d words for %s%s" word-count today
+               (if (string-empty-p note) "" (format " — %s" note)))
+      (run-hook-with-args 'org-scribe-planner-after-progress-update-hook
+                          plan word-count today))))
+
 (defun org-scribe-planner--show-progress-report (plan)
   "Display a progress report for PLAN."
   (let* ((total (org-scribe-plan-total-words plan))

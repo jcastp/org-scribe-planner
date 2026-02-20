@@ -200,4 +200,92 @@ Cleans up the temp file unconditionally."
         (org-scribe-planner-load-plan))
       (should (string= picker-dir "/tmp/my-writing-project")))))
 
+;;; Tests for org-scribe-planner-today
+
+(ert-deftest test-today-logs-todays-date ()
+  "org-scribe-planner-today records words for today without a date picker."
+  (test-hooks--with-plan-file plan file
+    (let* ((org-scribe-planner--current-plan plan)
+           (org-scribe-planner--current-plan-file file)
+           (org-scribe-planner-after-progress-update-hook nil)
+           (org-scribe-planner-wordcount-function nil)
+           (org-scribe-planner--schedule-cache nil))
+      (cl-letf (((symbol-function 'org-scribe-planner--get-today-date)
+                 (lambda () "2026-01-05"))
+                ((symbol-function 'org-scribe-planner--read-non-negative-number)
+                 (lambda (&rest _) 600))
+                ((symbol-function 'read-string)
+                 (lambda (&rest _) "")))
+        (org-scribe-planner-today))
+      (let ((entry (assoc "2026-01-05"
+                          (org-scribe-plan-daily-word-counts
+                           org-scribe-planner--current-plan))))
+        (should entry)
+        (should (= (plist-get (cdr entry) :words) 600))))))
+
+(ert-deftest test-today-wordcount-function-skips-prompt ()
+  "org-scribe-planner-today uses wordcount-function and skips the word-count prompt."
+  (test-hooks--with-plan-file plan file
+    (let* ((prompt-called nil)
+           (org-scribe-planner--current-plan plan)
+           (org-scribe-planner--current-plan-file file)
+           (org-scribe-planner-after-progress-update-hook nil)
+           (org-scribe-planner-wordcount-function (lambda () 999))
+           (org-scribe-planner--schedule-cache nil))
+      (cl-letf (((symbol-function 'org-scribe-planner--get-today-date)
+                 (lambda () "2026-01-05"))
+                ((symbol-function 'org-scribe-planner--read-non-negative-number)
+                 (lambda (&rest _) (setq prompt-called t) 0))
+                ((symbol-function 'read-string)
+                 (lambda (&rest _) "")))
+        (org-scribe-planner-today))
+      (should-not prompt-called)
+      (let ((entry (assoc "2026-01-05"
+                          (org-scribe-plan-daily-word-counts
+                           org-scribe-planner--current-plan))))
+        (should (= (plist-get (cdr entry) :words) 999))))))
+
+(ert-deftest test-today-hook-fires-with-todays-date ()
+  "org-scribe-planner-today fires after-progress-update-hook with today's date."
+  (test-hooks--with-plan-file plan file
+    (let* ((hook-calls nil)
+           (org-scribe-planner-after-progress-update-hook
+            (list (lambda (p c d) (push (list p c d) hook-calls))))
+           (org-scribe-planner--current-plan plan)
+           (org-scribe-planner--current-plan-file file)
+           (org-scribe-planner-wordcount-function nil)
+           (org-scribe-planner--schedule-cache nil))
+      (cl-letf (((symbol-function 'org-scribe-planner--get-today-date)
+                 (lambda () "2026-01-05"))
+                ((symbol-function 'org-scribe-planner--read-non-negative-number)
+                 (lambda (&rest _) 300))
+                ((symbol-function 'read-string)
+                 (lambda (&rest _) "")))
+        (org-scribe-planner-today))
+      (should (= (length hook-calls) 1))
+      (let ((args (car hook-calls)))
+        (should (org-scribe-plan-p (nth 0 args)))
+        (should (= (nth 1 args) 300))
+        (should (string= (nth 2 args) "2026-01-05"))))))
+
+(ert-deftest test-today-no-recalculate-prompt ()
+  "org-scribe-planner-today does not ask about recalculation."
+  (test-hooks--with-plan-file plan file
+    (let* ((y-or-n-called nil)
+           (org-scribe-planner--current-plan plan)
+           (org-scribe-planner--current-plan-file file)
+           (org-scribe-planner-after-progress-update-hook nil)
+           (org-scribe-planner-wordcount-function nil)
+           (org-scribe-planner--schedule-cache nil))
+      (cl-letf (((symbol-function 'org-scribe-planner--get-today-date)
+                 (lambda () "2026-01-05"))
+                ((symbol-function 'org-scribe-planner--read-non-negative-number)
+                 (lambda (&rest _) 400))
+                ((symbol-function 'read-string)
+                 (lambda (&rest _) ""))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) (setq y-or-n-called t) nil)))
+        (org-scribe-planner-today))
+      (should-not y-or-n-called))))
+
 ;;; test-hooks.el ends here
