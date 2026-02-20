@@ -5,6 +5,7 @@ A comprehensive writing planning tool for Emacs Org-mode, inspired by [pacemaker
 ## Recent Updates
 
 ### Version 0.3.0
+- **org-scribe Integration**: Optional integration module for [org-scribe](https://codeberg.org/jcastp/org-scribe) — auto-loads plans, syncs live word counts from manuscript, and adds a planner sub-menu to the org-scribe hydra
 - **Comprehensive Dashboards**: Multiple visualization dashboards for tracking progress, velocity, and performance
 - **Multi-Metric Dashboard**: Unified view of all key metrics including progress, velocity trends, and performance analytics
 - **Spare Day Notes**: Add custom notes to spare days (holidays, breaks) without affecting word counts
@@ -101,6 +102,85 @@ git clone https://codeberg.org/jcastp/org-scribe-planner.git
    ("C-c w D" . org-scribe-planner-dashboards-menu)
    ("C-c w M" . org-scribe-planner-show-multi-metric-dashboard)
    ("C-c w p" . org-scribe-planner-show-progress-dashboard)))
+```
+
+## Integration with org-scribe
+
+org-scribe-planner can optionally integrate with [org-scribe](https://codeberg.org/jcastp/org-scribe), an Emacs package for novel and short-story project management. Both packages remain fully functional as standalones — the integration is strictly opt-in.
+
+### What the integration provides
+
+| Feature                  | Description                                                                                                                   |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| **Auto-load plan**       | When you open any file inside an org-scribe project, the associated plan is loaded automatically                              |
+| **Live word count sync** | After running `org-scribe/ews-org-count-words`, the planner updates `CURRENT_WORDS` silently — no manual entry needed         |
+| **Smart file picker**    | `org-scribe-planner-load-plan` opens its file chooser at the org-scribe project root instead of the generic planner directory |
+| **Plan creation offer**  | After creating a new org-scribe project, you are asked whether to create a writing plan for it                                |
+| **Planner sub-hydra**    | A `W` key in the main org-scribe hydra (`F8 F8`) opens a dedicated planner sub-menu                                           |
+| **Mode-line status**     | When a plan is active and today's daily entry is logged, the mode line shows `[W:actual/target]`                              |
+
+### Enabling the integration
+
+After installing both packages, add a single line to your `init.el`:
+
+```elisp
+(with-eval-after-load 'org-scribe-planner
+  (require 'org-scribe-planner-integration))
+```
+
+The integration module lives in `org-scribe/integration/org-scribe-planner-integration.el`.
+
+### Disabling individual features
+
+Each feature is independent and can be removed without affecting the rest:
+
+```elisp
+;; Stop auto-loading plans when opening project files:
+(remove-hook 'org-scribe-mode-hook
+             #'org-scribe-planner-integration--auto-load-plan)
+
+;; Disable automatic progress update after word counting:
+(advice-remove 'org-scribe/ews-org-count-words
+               #'org-scribe-planner-integration--after-wordcount)
+
+;; Revert update-progress to the manual prompt:
+(setq org-scribe-planner-wordcount-function nil)
+
+;; Revert load-plan file picker to the default planner directory:
+(setq org-scribe-planner-project-root-function nil)
+```
+
+### Plan file discovery
+
+When opening a file inside an org-scribe project, the integration looks for the plan in this order:
+
+1. `<project-root>/plan.org`
+2. `<project-root>/<title>-plan.org` (title read from `.org-scribe-project`)
+3. Any single `.org` file in the project root that contains a `TOTAL_WORDS` property
+
+If none is found, the integration is silent — no error, no prompt.
+
+### Extension points for third-party integrations
+
+org-scribe-planner exposes four pluggable variables that any package can use without depending on org-scribe:
+
+```elisp
+;; Called with no args; return an integer word count or nil to fall
+;; back to the manual prompt in update-progress:
+(setq org-scribe-planner-wordcount-function #'my-count-fn)
+
+;; Called with no args; return a directory path or nil:
+(setq org-scribe-planner-project-root-function #'my-root-fn)
+```
+
+Two hooks fire at key moments:
+
+```elisp
+;; (plan new-count date-or-nil) — after update-progress or update-daily-word-count:
+(add-hook 'org-scribe-planner-after-progress-update-hook #'my-fn)
+
+;; (plan file-path) — after load-plan or new-plan activates a plan:
+(add-hook 'org-scribe-planner-after-plan-load-hook #'my-fn)
 ```
 
 ## Usage
@@ -545,7 +625,7 @@ The package validates all numeric input:
 All tests live in the `tests/` directory and use ERT (Emacs Regression Testing). Run from the project root:
 
 ```bash
-# Run the full test suite (81 tests)
+# Run the full test suite (88 tests)
 emacs -batch -l ert \
   -l tests/test-date-validation.el \
   -l tests/test-buffer-safety.el \
@@ -554,13 +634,23 @@ emacs -batch -l ert \
   -l tests/test-data-helpers.el \
   -l tests/test-plan-io.el \
   -l tests/test-milestones.el \
+  -l tests/test-hooks.el \
   -f ert-run-tests-batch-and-exit
 
 # Run a single test file
 emacs -batch -l ert -l tests/test-calculation.el -f ert-run-tests-batch-and-exit
 ```
 
-The test files cover the core calculation engine, schedule generation, daily count serialization, plan I/O round-trips, and milestone tracking.
+| Test file                 | What it covers                                                 |
+|---------------------------|----------------------------------------------------------------|
+| `test-date-validation.el` | Date format and value validation                               |
+| `test-buffer-safety.el`   | Plan file safety checks, save/load guards                      |
+| `test-calculation.el`     | Smart calculation engine (all 3 modes, spare days)             |
+| `test-schedule.el`        | Day schedule generation, memoization, date utilities           |
+| `test-data-helpers.el`    | Daily count format, migration, accessors, spare day notes      |
+| `test-plan-io.el`         | Save→load round-trips for all fields                           |
+| `test-milestones.el`      | Milestone calculation and recalculation data                   |
+| `test-hooks.el`           | Integration hooks and pluggable fn-vars (no org-scribe needed) |
 
 ## Contributing
 
@@ -569,11 +659,11 @@ Contributions are welcome! This package is actively developed and includes:
 - ✅ SVG-based charts (cumulative progress, burndown, velocity, heatmap)
 - ✅ Performance analytics and velocity tracking
 - ✅ Spare day notes and custom annotations
+- ✅ Integration with org-scribe (auto word count sync, plan auto-load, hydra menu)
+- ✅ Extension hooks and pluggable function variables for third-party integrations
 
 Future enhancements could include:
 - Export to various formats (PDF, CSV, iCal)
-- Integration with word counting tools
-- Automatic word count detection from org files
 - Writing session timer integration
 - Multi-project comparison views
 - Interactive chart annotations
