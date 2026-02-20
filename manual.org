@@ -1,0 +1,469 @@
+#+TITLE: org-scribe-planner - User Manual
+#+AUTHOR: Javier Castilla
+#+DATE: 2026-02-20
+#+STARTUP: overview
+
+* What Is org-scribe-planner?
+
+~org-scribe-planner~ is an Emacs package that answers one question every writer eventually faces: /how many words do I need to write today to finish on time?/
+
+Inspired by [[https://pacemaker.press][pacemaker.press]], it takes your writing goal - a total word count, a deadline, a daily capacity - and builds a day-by-day schedule you can actually follow. As you write, you log progress, and the plan tells you whether you're ahead, on track, or falling behind. When life intervenes and the original schedule no longer fits, you recalculate and keep going.
+
+The plan lives in a standard ~.org~ file. There is no web service, no account, and no data sent anywhere.
+
+* Installation
+
+** Requirements
+
+- Emacs 27.1 or newer
+- Org-mode 9.0 or newer
+
+** From source
+
+#+BEGIN_SRC sh
+git clone https://codeberg.org/jcastp/org-scribe-planner ~/.emacs.d/org-scribe-planner
+#+END_SRC
+
+Then add to your ~init.el~:
+
+#+BEGIN_SRC emacs-lisp
+(add-to-list 'load-path "~/.emacs.d/org-scribe-planner")
+(require 'org-scribe-planner)
+#+END_SRC
+
+** Using use-package
+
+#+BEGIN_SRC emacs-lisp
+(use-package org-scribe-planner
+  :load-path "~/.emacs.d/org-scribe-planner"
+  :bind
+  (("C-c w n" . org-scribe-planner-new-plan)
+   ("C-c w l" . org-scribe-planner-load-plan)
+   ("C-c w u" . org-scribe-planner-update-progress)
+   ("C-c w d" . org-scribe-planner-update-daily-word-count)
+   ("C-c w r" . org-scribe-planner-recalculate)
+   ("C-c w m" . org-scribe-planner-show-milestones)
+   ("C-c w D" . org-scribe-planner-dashboards-menu)))
+#+END_SRC
+
+There is no build step. The package is pure Emacs Lisp and loads immediately.
+
+* Creating Your First Plan
+
+Run ~M-x org-scribe-planner-new-plan~.
+
+The wizard walks you through four steps.
+
+** Step 1: Project title
+
+#+BEGIN_EXAMPLE
+Project title: My Novel
+#+END_EXAMPLE
+
+This becomes the heading in the plan file and the label throughout the interface.
+
+** Step 2: Choose your calculation mode
+
+You provide any two of three variables - total words, daily words, or days available - and the planner calculates the third. Pick the mode that matches what you already know:
+
+| Mode                      | You know                              | The planner calculates       |
+|---------------------------+---------------------------------------+------------------------------|
+| /Total words + Days/        | Word count goal and deadline          | Required words per day       |
+| /Total words + Daily words/ | Goal and how much you can write daily | How many days you need       |
+| /Daily words + Days/        | Capacity and available time           | How many words you can reach |
+
+*Example - NaNoWriMo:* you know the goal (50,000 words) and the window (30 days). Choose «Total words + Days → Calculate daily words», enter 50000 and 30. The planner tells you 1,667 words/day.
+
+For the "days" field you can enter either a number of days or a pair of dates in ~YYYY-MM-DD~ format. When you enter dates the planner fills the start date and end date automatically.
+
+** Step 3: Start date
+
+If you entered a number of days (not dates), you'll be asked for the start date. Press Enter to use today, or type a date:
+
+#+BEGIN_EXAMPLE
+Start date (YYYY-MM-DD): 2026-03-01
+#+END_EXAMPLE
+
+** Step 4: Spare days (optional)
+
+Spare days are days when you won't write - weekends, holidays, vacations, conferences. They are marked ~REST~ in the calendar and are excluded from daily target calculations.
+
+Answer ~y~ to the prompt and choose how to add them:
+
+- *Specific date* - one date at a time (e.g. ~2026-04-18~ for Easter)
+- *Date range* - a block of consecutive days (e.g. a conference)
+- *All weekends* - every Saturday and Sunday in the plan window
+- *All Saturdays / All Sundays* - only one day of the weekend
+
+You can also add a note to a spare day - "Holiday", "Conference", "Vacation" - that appears in the calendar without affecting any word count calculation.
+
+When you're done the planner shows you the completed calendar and saves the plan to a ~.org~ file.
+
+** Where the plan file is saved
+
+By default, plan files go into the directory set by ~org-scribe-planner-directory~, which defaults to ~~/org/writing-projects/~. You can change it:
+
+#+BEGIN_SRC emacs-lisp
+(setq org-scribe-planner-directory "~/Documents/writing")
+#+END_SRC
+
+* The Calendar View
+
+After creating or loading a plan, the calendar buffer opens. It looks like this:
+
+#+BEGIN_EXAMPLE
+Writing Plan: My Novel
+Location: ~/Documents/writing/my-novel.org
+================================================================================
+Commands:
+  [q] quit  [d] daily word count  [u] update progress
+  [r] recalculate plan  [a] adjust remaining days
+  [D] dashboards menu  [p] progress  [b] burndown  [g] cumulative
+  [v] velocity  [h] heatmap
+================================================================================
+
+Summary:
+  Total Words:   80000
+  Daily Words:   1100
+  Total Days:    90
+  Working Days:  72
+  Start Date:    2026-03-01
+  End Date:      2026-05-29
+  Current Words: 12000 (15.0%)
+
+Daily Schedule:
+--------------------------------------------------------------------------------
+Week 1:
+  Date (Day)                 Daily Target   Expected Total   Actual Total
+  -------------------------  -------------  ---------------  ---------------
+  2026-03-02 (Monday   )     1100 words     1100 words       1200 words [109%]
+  2026-03-03 (Tuesday  )     1100 words     2200 words       -
+  2026-03-07 (Saturday )     REST           ...              (spare day)
+  Week total: 1100 words
+#+END_EXAMPLE
+
+Each writing day shows the daily target, the expected cumulative total at that point, and - once you log them - the actual words written and the percentage of target achieved.
+
+** Keybindings in the calendar buffer
+
+| Key | Action                                            |
+|-----+---------------------------------------------------|
+| ~q~   | Close the buffer                                  |
+| ~u~   | Update overall word count                         |
+| ~d~   | Log words for a specific day                      |
+| ~r~   | Recalculate the plan                              |
+| ~a~   | Adjust remaining days (redistribute after change) |
+| ~D~   | Open the dashboards menu                          |
+| ~m~   | Multi-metric dashboard                            |
+| ~p~   | Progress dashboard                                |
+| ~g~   | Cumulative progress chart (SVG)                   |
+| ~b~   | Burndown chart                                    |
+| ~v~   | Velocity analysis                                 |
+| ~V~   | Velocity chart (SVG)                              |
+| ~t~   | Velocity trends                                   |
+| ~P~   | Performance analytics                             |
+| ~h~   | Day-of-week heatmap                               |
+| ~s~   | Split dashboards (side-by-side)                   |
+
+* Loading an Existing Plan
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-load-plan
+#+END_EXAMPLE
+
+A file picker opens at ~org-scribe-planner-directory~. Select the plan file and the calendar buffer appears.
+
+The loaded plan becomes the /active plan/ - the one that progress updates, daily logs, and dashboards all operate on. Only one plan is active at a time per Emacs session.
+
+* Tracking Progress
+
+** Update the overall word count
+
+When you finish a writing session, tell the planner your current total word count:
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-update-progress
+#+END_EXAMPLE
+
+Enter the cumulative total of words you've written so far (not just today's session, but the running total). The planner compares it to the expected cumulative and tells you whether you're ahead or behind:
+
+#+BEGIN_EXAMPLE
+Progress: 12000/80000 words (15.0%) | Ahead: +800 words
+#+END_EXAMPLE
+
+** Log words for a specific day
+
+For a richer picture, log how many words you wrote on each individual day:
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-update-daily-word-count
+#+END_EXAMPLE
+
+You select a date from the plan's schedule, enter the words you wrote, and optionally add a short note:
+
+#+BEGIN_EXAMPLE
+Date: 2026-03-02
+Words written: 1200
+Note (optional): Good session, finally cracked the opening scene
+#+END_EXAMPLE
+
+The calendar updates immediately, showing the actual vs. target for that day. Notes appear alongside the entry.
+
+You can also log 0 words on a spare day with a note - "Conference", "Sick" - without affecting the cumulative totals.
+
+* Adapting the Plan
+
+Plans rarely survive contact with reality unchanged. The recalculate tools let you adjust without starting over.
+
+** Recalculate when parameters change
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-recalculate
+#+END_EXAMPLE
+
+A menu offers:
+
+- *Daily words (recalc days needed)* - you've decided to write more (or less) per day; the planner extends or shortens the deadline accordingly
+- *Days available (recalc daily words)* - the deadline moved; the planner adjusts the required daily target
+- *Total words (recalc daily words)* - the project scope changed; the planner adjusts daily targets to match
+- *Add/modify spare days* - open the spare day manager
+- *Remove a specific spare day* - unmark one date
+- *Clear all spare days* - remove all breaks and recalculate
+
+** Adjust remaining days
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-adjust-remaining-plan
+#+END_EXAMPLE
+
+This redistributes only the /remaining/ words across the /remaining/ days, using your current progress as the new baseline. Use it when you've been ahead or behind and want to reset expectations going forward without touching historical entries.
+
+The difference from recalculate: ~recalculate~ rewrites the whole plan from scratch; ~adjust-remaining~ leaves past days alone and only updates what's still ahead of you.
+
+* Milestones
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-show-milestones
+#+END_EXAMPLE
+
+Shows the dates when you're scheduled to reach 25%, 50%, 75%, and 100% of your total word goal, alongside the dates when you actually /reached/ those milestones (if you've been logging progress):
+
+#+BEGIN_EXAMPLE
+Milestone   Target words   Scheduled date   Actual date
+─────────── ────────────── ──────────────── ───────────
+25%         20000          2026-03-21       2026-03-19
+50%         40000          2026-04-10
+75%         60000          2026-04-30
+100%        80000          2026-05-29
+#+END_EXAMPLE
+
+Reaching a milestone ahead of schedule is a concrete, motivating signal that your pace is sustainable.
+
+* Dashboards and Analytics
+
+The dashboards give you a deeper picture of your writing patterns beyond the day-by-day calendar. Access them from the calendar buffer (see keybindings above) or directly with ~M-x~.
+
+** Multi-metric dashboard (~m~)
+
+The flagship view. Opens with ~M-x org-scribe-planner-show-multi-metric-dashboard~ or press ~m~ in the calendar buffer.
+
+Shows at a glance:
+- Progress percentage and schedule status (ahead/behind, by how many words)
+- Days elapsed and days remaining
+- Velocity: 7-day, 14-day, and 30-day word-per-day averages
+- Acceleration or deceleration compared to earlier periods
+- Consistency score (how many of your scheduled days you actually wrote)
+- Achievement rate (how often you met the daily target)
+- Current and longest writing streaks
+- Your three best days of the week by average output
+- Projected completion date based on your recent pace
+
+** Progress dashboard (~p~)
+
+~M-x org-scribe-planner-show-progress-dashboard~
+
+Focuses on schedule adherence: how far ahead or behind you are in words, how many extra (or fewer) days that represents at your current pace, and a visual progress bar.
+
+** Cumulative progress chart (~g~)
+
+~M-x org-scribe-planner-show-cumulative-progress~
+
+An SVG chart plotting two lines - your actual cumulative words and the expected cumulative line. The gap between them makes it immediately obvious whether you're above or below the plan.
+
+** Burndown chart (~b~)
+
+~M-x org-scribe-planner-show-burndown~
+
+Tracks /remaining/ words over time. The ideal line slopes cleanly to zero at the deadline; your actual line shows where you've been faster or slower than planned.
+
+** Velocity analysis (~v~, ~V~, ~t~)
+
+- ~v~ / ~M-x org-scribe-planner-show-velocity~ - text report of 7/14/30-day and overall averages
+- ~V~ / ~M-x org-scribe-planner-show-velocity-chart~ - SVG chart of words per day over time
+- ~t~ / ~M-x org-scribe-planner-show-velocity-trends~ - multi-window trend view
+
+** Performance analytics (~P~)
+
+~M-x org-scribe-planner-show-performance-analytics~
+
+Deep-dives into your writing habits: consistency score, target achievement rate, momentum score (0–100), day-of-week breakdown.
+
+** Day-of-week heatmap (~h~)
+
+~M-x org-scribe-planner-show-heatmap~
+
+A visual grid of your average output by day of the week. Use it to find your most and least productive days and schedule accordingly.
+
+** Dashboard menu (~D~)
+
+~M-x org-scribe-planner-dashboards-menu~
+
+An interactive menu listing all dashboards in one place - useful when you can't remember the keybinding.
+
+** Split view (~s~)
+
+~M-x org-scribe-planner-show-split-dashboards~
+
+Opens multiple dashboards in a side-by-side window layout.
+
+* Syncing to org-agenda
+
+#+BEGIN_EXAMPLE
+M-x org-scribe-planner-sync-agenda
+#+END_EXAMPLE
+
+Creates a ~TODO Write N words~ entry with a ~SCHEDULED:~ date for every writing day in the plan. The plan file is added to ~org-agenda-files~ automatically, so your daily writing targets appear in your standard org-agenda view.
+
+This is optional - everything else in the package works without it.
+
+* How Plan Files Work
+
+The plan is stored as an Org heading with properties:
+
+#+BEGIN_EXAMPLE
+* My Novel
+:PROPERTIES:
+:TOTAL_WORDS: 80000
+:DAILY_WORDS: 1100
+:DAYS: 90
+:START_DATE: 2026-03-01
+:END_DATE: 2026-05-29
+:CURRENT_WORDS: 12000
+:SPARE_DAYS: 2026-03-07,2026-03-08,2026-03-14,...
+:DAILY_WORD_COUNTS: 2026-03-02:1200:Good session,2026-03-03:900:
+:END:
+#+END_EXAMPLE
+
+You can read, duplicate, and back up plan files like any other Org file. The package validates the file before writing and refuses to overwrite a file with multiple headings, protecting your existing content.
+
+* Optional Integration with org-scribe
+
+If you use [[https://codeberg.org/jcastp/org-scribe][org-scribe]] for project management, an integration module connects the two packages automatically. It is strictly opt-in - both packages work independently without it.
+
+** What the integration does
+
+| Feature              | Description                                                                                              |
+|----------------------+----------------------------------------------------------------------------------------------------------|
+| Auto-load plan       | When you open any file inside an org-scribe project, the associated plan loads silently                  |
+| Live word count sync | After running the word count command (~F8 F8 a~), the planner updates immediately - no manual entry needed |
+| Smart file picker    | The load-plan dialog opens at the project root instead of the generic planner directory                  |
+| Plan creation offer  | Creating a new org-scribe project asks whether to set up a writing plan                                  |
+| Planner sub-hydra    | Press ~W~ in the main org-scribe Hydra (~F8 F8~) to open the planner submenu                                 |
+| Mode-line status     | While a plan is active, the mode line shows ~[W:actual/target]~ for today                                  |
+
+** Enabling it
+
+After installing both packages, add one line to your ~init.el~:
+
+#+BEGIN_SRC emacs-lisp
+(with-eval-after-load 'org-scribe-planner
+  (require 'org-scribe-planner-integration))
+#+END_SRC
+
+The integration module lives in ~org-scribe/integration/org-scribe-planner-integration.el~, inside the org-scribe package directory.
+
+** The planner sub-hydra (~F8 F8 W~)
+
+| Key | Action                                       |
+|-----+----------------------------------------------|
+| ~p~   | Show current plan calendar                   |
+| ~n~   | New plan                                     |
+| ~l~   | Load plan                                    |
+| ~u~   | Update progress (from manuscript word count) |
+| ~d~   | Log daily word count                         |
+| ~r~   | Recalculate plan                             |
+| ~a~   | Adjust remaining days                        |
+| ~m~   | Show milestones                              |
+| ~D~   | Open dashboards menu                         |
+| ~q~   | Return to main Hydra                         |
+
+** Disabling individual features
+
+Each integration feature can be turned off independently:
+
+#+BEGIN_SRC emacs-lisp
+;; Stop auto-loading plans when opening project files
+(remove-hook 'org-scribe-mode-hook
+             #'org-scribe-planner-integration--auto-load-plan)
+
+;; Stop pushing word counts to the plan after F8 F8 a
+(advice-remove 'org-scribe/ews-org-count-words
+               #'org-scribe-planner-integration--after-wordcount)
+
+;; Revert update-progress to the manual prompt
+(setq org-scribe-planner-wordcount-function nil)
+
+;; Revert load-plan file picker to the default directory
+(setq org-scribe-planner-project-root-function nil)
+#+END_SRC
+
+* Customization
+
+#+BEGIN_SRC emacs-lisp
+;; Directory for storing plan files (default: ~/org/writing-projects/)
+(setq org-scribe-planner-directory "~/Documents/writing")
+
+;; Name of the calendar visualization buffer
+(setq org-scribe-planner-calendar-buffer "*Writing Plan*")
+
+;; Days without an entry before a writing streak is considered broken
+;; (default: 2 - tolerates logging the morning after you wrote)
+(setq org-scribe-planner-streak-grace-days 2)
+#+END_SRC
+
+* Quick Reference
+
+** All commands
+
+| Command                                        | What it does                                       |
+|------------------------------------------------+----------------------------------------------------|
+| ~org-scribe-planner-new-plan~                    | Create a new plan with the interactive wizard      |
+| ~org-scribe-planner-load-plan~                   | Load an existing plan file                         |
+| ~org-scribe-planner-update-progress~             | Update the cumulative word count                   |
+| ~org-scribe-planner-update-daily-word-count~     | Log words for a specific day                       |
+| ~org-scribe-planner-recalculate~                 | Modify plan parameters                             |
+| ~org-scribe-planner-adjust-remaining-plan~       | Redistribute remaining words across remaining days |
+| ~org-scribe-planner-show-milestones~             | Show 25/50/75/100% dates                           |
+| ~org-scribe-planner-show-current-plan~           | Reopen the calendar buffer for the active plan     |
+| ~org-scribe-planner-current-plan-info~           | Show a short summary of the active plan            |
+| ~org-scribe-planner-sync-agenda~                 | Export schedule entries to org-agenda              |
+| ~org-scribe-planner-dashboards-menu~             | Open the dashboards selection menu                 |
+| ~org-scribe-planner-show-multi-metric-dashboard~ | Comprehensive overview dashboard                   |
+| ~org-scribe-planner-show-progress-dashboard~     | Detailed progress view                             |
+| ~org-scribe-planner-show-cumulative-progress~    | SVG cumulative progress chart                      |
+| ~org-scribe-planner-show-burndown~               | Burndown chart                                     |
+| ~org-scribe-planner-show-velocity~               | Velocity text report                               |
+| ~org-scribe-planner-show-velocity-chart~         | SVG velocity chart                                 |
+| ~org-scribe-planner-show-performance-analytics~  | Consistency and achievement analytics              |
+| ~org-scribe-planner-show-heatmap~                | Day-of-week productivity heatmap                   |
+
+** Suggested daily workflow
+
+| When                 | Action                 | Command / Key                                  |
+|----------------------+------------------------+------------------------------------------------|
+| Start of project     | Create the plan        | ~M-x org-scribe-planner-new-plan~                |
+| Every session start  | Glance at the calendar | ~M-x org-scribe-planner-show-current-plan~       |
+| After each session   | Log the day's words    | ~M-x org-scribe-planner-update-daily-word-count~ |
+| Weekly               | Check overall pace     | Press ~m~ in the calendar buffer                 |
+| When life changes    | Adjust the plan        | ~M-x org-scribe-planner-recalculate~             |
+| When you fall behind | Redistribute remaining | ~M-x org-scribe-planner-adjust-remaining-plan~   |

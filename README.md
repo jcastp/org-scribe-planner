@@ -91,7 +91,7 @@ git clone https://codeberg.org/jcastp/org-scribe-planner.git
   :custom
   (org-scribe-planner-directory "~/Documents/writing-projects")
   (org-scribe-planner-sync-to-agenda t)
-  :bind
+  :bind ;; modify to your own usage
   (("C-c w n" . org-scribe-planner-new-plan)
    ("C-c w l" . org-scribe-planner-load-plan)
    ("C-c w u" . org-scribe-planner-update-progress)
@@ -655,12 +655,12 @@ emacs -batch -l ert -l tests/test-calculation.el -f ert-run-tests-batch-and-exit
 ## Contributing
 
 Contributions are welcome! This package is actively developed and includes:
-- ✅ Multiple dashboard visualizations
-- ✅ SVG-based charts (cumulative progress, burndown, velocity, heatmap)
-- ✅ Performance analytics and velocity tracking
-- ✅ Spare day notes and custom annotations
-- ✅ Integration with org-scribe (auto word count sync, plan auto-load, hydra menu)
-- ✅ Extension hooks and pluggable function variables for third-party integrations
+- Multiple dashboard visualizations
+- SVG-based charts (cumulative progress, burndown, velocity, heatmap)
+- Performance analytics and velocity tracking
+- Spare day notes and custom annotations
+- Integration with org-scribe (auto word count sync, plan auto-load, hydra menu)
+- Extension hooks and pluggable function variables for third-party integrations
 
 Future enhancements could include:
 - Export to various formats (PDF, CSV, iCal)
